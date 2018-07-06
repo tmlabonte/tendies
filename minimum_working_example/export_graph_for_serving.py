@@ -5,6 +5,30 @@ sys.path.insert(0, "../CycleGAN-TensorFlow")
 import model  # nopep8
 
 
+# Transform image bytestring to float tensor
+def preprocess_bytestring_to_float_tensor(input_bytes, image_size):
+    input_bytes = tf.reshape(input_bytes, [])
+    input_tensor = tf.image.decode_png(input_bytes, channels=3)
+    input_tensor = tf.image.resize_images(input_tensor,
+                                          size=(image_size, image_size))
+    input_tensor = tf.image.convert_image_dtype(input_tensor,
+                                                dtype=tf.float32)
+    input_tensor = input_tensor / 127.5 - 1.0
+    input_tensor = tf.reshape(input_tensor, [image_size, image_size, 3])
+    input_tensor = tf.expand_dims(input_tensor, 0)
+    return input_tensor
+
+
+# Transform float tensor to image bytestring
+def postprocess_float_tensor_to_bytestring(output_tensor):
+    output_tensor = (output_tensor + 1.0) / 2.0
+    output_tensor = tf.image.convert_image_dtype(output_tensor, tf.uint8)
+    output_tensor = tf.squeeze(output_tensor, [0])
+    output_bytes = tf.image.encode_png(output_tensor)
+    output_bytes = tf.identity(output_bytes, name="output_bytes")
+    return output_bytes
+
+
 # Export graph to ProtoBuf
 def export_graph():
     graph = tf.Graph()
@@ -19,22 +43,14 @@ def export_graph():
         input_bytes = tf.placeholder(tf.string, shape=[], name="input_bytes")
 
         # Preprocess input (bitstring to float tensor)
-        input_bytes = tf.reshape(input_bytes, [])
-        input_image = tf.image.decode_png(input_bytes, channels=3)
-        input_image = tf.image.resize_images(input_image,
-                                             size=(FLAGS.image_size,
-                                                   FLAGS.image_size))
-        input_image = tf.image.convert_image_dtype(input_image,
-                                                   dtype=tf.float32)
-        input_image = input_image / 127.5 - 1.0
-        input_image.set_shape([FLAGS.image_size, FLAGS.image_size, 3])
+        input_tensor = preprocess_bytestring_to_float_tensor(input_bytes,
+                                                             FLAGS.image_size)
 
         # Get style transferred tensor
-        output_image = cycle_gan.G.sample(tf.expand_dims(input_image, 0))
+        output_tensor = cycle_gan.G.sample(input_tensor)
 
         # Postprocess output
-        output_bytes = tf.image.encode_png(tf.squeeze(output_image, [0]))
-        output_bytes = tf.identity(output_bytes, name="output_bytes")
+        output_bytes = postprocess_float_tensor_to_bytestring(output_tensor)
 
         saver = tf.train.Saver()
 
