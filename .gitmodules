@@ -1,0 +1,3 @@
+[submodule "CycleGAN-TensorFlow"]
+	path = CycleGAN-TensorFlow
+	url = https://github.com/tmlabonte/CycleGAN-TensorFlow.git
