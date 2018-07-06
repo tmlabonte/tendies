@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--input_file",
                         type=str,
-                        default="CycleGAN-TensorFlow/data"
+                        default="../CycleGAN-TensorFlow/data"
                                 "/gaussian2sinusoidal64"
                                 "/trainA/gaussian0.png",
                         help="Path to input file")

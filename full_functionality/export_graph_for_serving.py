@@ -1,11 +1,11 @@
 import tensorflow as tf
 import argparse
 import sys
-sys.path.insert(0, "./CycleGAN-TensorFlow")
+sys.path.insert(0, "../CycleGAN-TensorFlow")
 import model  # nopep8
 
 
-# Exports graph to ProtoBuf
+# Export graph to ProtoBuf
 def export_graph():
     graph = tf.Graph()
 
@@ -55,7 +55,7 @@ def export_graph():
                              as_text=False)
 
 
-# Wraps a SavedModel around ProtoBuf
+# Wrap a SavedModel around ProtoBuf
 # Necessary for using the tensorflow-serving RESTful API
 def build_saved_model():
     builder = tf.saved_model.builder.SavedModelBuilder(FLAGS.serve_dir +
