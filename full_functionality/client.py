@@ -22,7 +22,7 @@ def inference(_):
         input64 = base64.b64encode(input_image)
         input_string = input64.decode(FLAGS.encoding)
 
-        # Wrap bytestring in JSON and POST to server, then wait for response
+        # Wrap bitstring in JSON and POST to server, then wait for response
         instance = [{"b64": input_string}]
         data = json.dumps({"instances": instance})
         json_response = requests.post(FLAGS.url, data=data)
@@ -30,7 +30,7 @@ def inference(_):
         # Extract text from JSON
         response = json.loads(json_response.text)
 
-        # Interpret bytestring output
+        # Interpret bitstring output
         response_string = response["predictions"][0]["b64"]
         encoded_response_string = response_string.encode(FLAGS.encoding)
         response_image = base64.b64decode(encoded_response_string)

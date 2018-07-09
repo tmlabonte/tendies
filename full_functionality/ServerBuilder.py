@@ -5,21 +5,13 @@ import sys
 
 # Exports TensorFlow model for serving
 # Requires: Input and output of model is a float tensor
-# Requires: Input and output of server is a JSON-compatible bytestring
+# Requires: Input and output of server is a JSON-compatible bitstring
 class ServerBuilder:
-
-    '''
-    A ServerBuilder Class: 
-
-
-    '''
-
     def __init__(self):
         pass
 
-    # Transform image bytestring to float tensor
-    def __preprocess_bytestring_to_float_tensor(self, input_bytes, image_size):
-        input_bytes = tf.reshape(input_bytes, [])
+    # Transform image bitstring to float tensor
+    def __preprocess_bitstring_to_float_tensor(self, input_bytes, image_size):
         input_tensor = tf.image.decode_png(input_bytes, channels=3)
         input_tensor = tf.image.resize_images(input_tensor,
                                               size=(image_size, image_size))
@@ -30,8 +22,8 @@ class ServerBuilder:
         input_tensor = tf.expand_dims(input_tensor, 0)
         return input_tensor
 
-    # Transform float tensor to image bytestring
-    def __postprocess_float_tensor_to_bytestring(self, output_tensor):
+    # Transform float tensor to image bitstring
+    def __postprocess_float_tensor_to_bitstring(self, output_tensor):
         output_tensor = (output_tensor + 1.0) / 2.0
         output_tensor = tf.image.convert_image_dtype(output_tensor, tf.uint8)
         output_tensor = tf.squeeze(output_tensor, [0])
@@ -50,20 +42,21 @@ class ServerBuilder:
         graph = tf.Graph()
 
         with graph.as_default():
-            # Create placeholder for input bytestring
+            # Create placeholder for input bitstring
+            # Injects a bitstring layer into beginning of model
             input_bytes = tf.placeholder(tf.string,
                                          shape=[],
                                          name="input_bytes")
 
-            # Preprocess input bytestring
-            input_tensor = self.__preprocess_bytestring_to_float_tensor(
+            # Preprocess input bitstring
+            input_tensor = self.__preprocess_bitstring_to_float_tensor(
                 input_bytes, image_size)
 
             # Get output tensor
             output_tensor = model_instance_inference_function(input_tensor)
 
             # Postprocess output tensor
-            output_bytes = self.__postprocess_float_tensor_to_bytestring(
+            output_bytes = self.__postprocess_float_tensor_to_bitstring(
                 output_tensor)
 
             # Instantiate a saver

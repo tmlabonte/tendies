@@ -27,7 +27,7 @@ def inference():
     response_image = base64.b64decode(encoded_response_string)
 
     # Save inferred image
-    with open(FLAGS.output_file, 'wb') as output_file:
+    with open(FLAGS.output_file, "wb") as output_file:
         output_file.write(response_image)
 
 

@@ -5,12 +5,10 @@ sys.path.insert(0, "../CycleGAN-TensorFlow")
 import model  # nopep8
 
 
-# Transform image bytestring to float tensor
-def preprocess_bytestring_to_float_tensor(input_bytes, image_size):
+# Transform image bitstring to float tensor
+def preprocess_bitstring_to_float_tensor(input_bytes, image_size):
     input_bytes = tf.reshape(input_bytes, [])
     input_tensor = tf.image.decode_png(input_bytes, channels=3)
-    input_tensor = tf.image.resize_images(input_tensor,
-                                          size=(image_size, image_size))
     input_tensor = tf.image.convert_image_dtype(input_tensor,
                                                 dtype=tf.float32)
     input_tensor = input_tensor / 127.5 - 1.0
@@ -19,8 +17,8 @@ def preprocess_bytestring_to_float_tensor(input_bytes, image_size):
     return input_tensor
 
 
-# Transform float tensor to image bytestring
-def postprocess_float_tensor_to_bytestring(output_tensor):
+# Transform float tensor to image bitstring
+def postprocess_float_tensor_to_bitstring(output_tensor):
     output_tensor = (output_tensor + 1.0) / 2.0
     output_tensor = tf.image.convert_image_dtype(output_tensor, tf.uint8)
     output_tensor = tf.squeeze(output_tensor, [0])
@@ -43,14 +41,14 @@ def export_graph():
         input_bytes = tf.placeholder(tf.string, shape=[], name="input_bytes")
 
         # Preprocess input (bitstring to float tensor)
-        input_tensor = preprocess_bytestring_to_float_tensor(input_bytes,
-                                                             FLAGS.image_size)
+        input_tensor = preprocess_bitstring_to_float_tensor(input_bytes,
+                                                            FLAGS.image_size)
 
         # Get style transferred tensor
         output_tensor = cycle_gan.G.sample(input_tensor)
 
         # Postprocess output
-        output_bytes = postprocess_float_tensor_to_bytestring(output_tensor)
+        output_bytes = postprocess_float_tensor_to_bitstring(output_tensor)
 
         saver = tf.train.Saver()
 
