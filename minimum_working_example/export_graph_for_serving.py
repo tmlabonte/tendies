@@ -8,20 +8,34 @@ import model  # nopep8
 # Transform image bitstring to float tensor
 def preprocess_bitstring_to_float_tensor(input_bytes, image_size):
     input_bytes = tf.reshape(input_bytes, [])
+
+    # Transform bitstring to uint8 tensor
     input_tensor = tf.image.decode_png(input_bytes, channels=3)
+
+    # Convert to float32 tensor
     input_tensor = tf.image.convert_image_dtype(input_tensor,
                                                 dtype=tf.float32)
     input_tensor = input_tensor / 127.5 - 1.0
+
+    # Ensure tensor has correct shape
     input_tensor = tf.reshape(input_tensor, [image_size, image_size, 3])
+
+    # CycleGAN's inference function accepts a batch of images
+    # So expand the single tensor into a batch of 1
     input_tensor = tf.expand_dims(input_tensor, 0)
     return input_tensor
 
 
 # Transform float tensor to image bitstring
 def postprocess_float_tensor_to_bitstring(output_tensor):
+    # Convert to uint8 tensor
     output_tensor = (output_tensor + 1.0) / 2.0
     output_tensor = tf.image.convert_image_dtype(output_tensor, tf.uint8)
+
+    # Remove the batch dimension
     output_tensor = tf.squeeze(output_tensor, [0])
+
+    # Transform uint8 tensor to bitstring
     output_bytes = tf.image.encode_png(output_tensor)
     output_bytes = tf.identity(output_bytes, name="output_bytes")
     return output_bytes
@@ -38,6 +52,7 @@ def export_graph():
                                    image_size=FLAGS.image_size)
 
         # Create placeholder for image bitstring
+        # This is the first injection layer
         input_bytes = tf.placeholder(tf.string, shape=[], name="input_bytes")
 
         # Preprocess input (bitstring to float tensor)
@@ -50,6 +65,7 @@ def export_graph():
         # Postprocess output
         output_bytes = postprocess_float_tensor_to_bitstring(output_tensor)
 
+        # Instantiate a Saver
         saver = tf.train.Saver()
 
     with tf.Session(graph=graph) as sess:
@@ -72,6 +88,8 @@ def export_graph():
 # Wrap a SavedModel around ProtoBuf
 # Necessary for using the tensorflow-serving RESTful API
 def build_saved_model():
+    # Instantiate a SavedModelBuilder
+    # Note that the serve directory MUST have a model version subdirectory
     builder = tf.saved_model.builder.SavedModelBuilder(FLAGS.serve_dir +
                                                        "/" +
                                                        str(FLAGS.version))
@@ -86,15 +104,16 @@ def build_saved_model():
         graph_def = tf.GraphDef()
         graph_def.ParseFromString(protobuf_file.read())
 
-    # Get input and output from graph
+    # Get input and output tensors from GraphDef
+    # These are our injected bitstring layers
     [inp, out] = tf.import_graph_def(graph_def,
                                      name="",
                                      return_elements=["input_bytes:0",
                                                       "output_bytes:0"])
 
     with tf.Session(graph=out.graph) as sess:
-        # Sig def explodes if out_bytes has no shape info
-        # Fix: turn it into a batch of 1 image, rather than a single image
+        # Signature_definition expects a batch
+        # So we'll turn the output bitstring into a batch of 1 element
         out = tf.expand_dims(out, 0)
 
         # Build prototypes of input and output
