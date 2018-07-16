@@ -31,6 +31,7 @@ def inference(_):
         json_response = requests.post(FLAGS.url, data=data)
 
         # Extracts text from JSON
+        print(json_response)
         response = json.loads(json_response.text)
 
         # Interprets bitstring output
