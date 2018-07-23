@@ -1,3 +1,4 @@
+from LayerInjector import LayerInjector
 import tensorflow as tf
 import argparse
 import sys
@@ -10,105 +11,67 @@ class ServerBuilder:
         2. Converts model checkpoint to ProtoBuf.
         3. Wraps in a SavedModel with a PREDICT signature definition.
 
-        Requires that the input and output of the model's inference
-        function is a float32 tensor.
     """
 
     def __init__(self):
         pass
 
-    def preprocess_bitstring_to_float_tensor(input_bytes, image_size):
-        """ Transforms image bitstring to float32 tensor.
-
-            Args:
-                input_bytes: A bitstring representative of an input image.
-                image_size: The input image size (e.g., 64).
-
-            Returns:
-                A float32 tensor representative of the input image.
-        """
-
-        input_bytes = tf.reshape(input_bytes, [])
-
-        # Transforms bitstring to uint8 tensor
-        input_tensor = tf.image.decode_png(input_bytes, channels=3)
-
-        # Converts to float32 tensor
-        input_tensor = tf.image.convert_image_dtype(input_tensor,
-                                                    dtype=tf.float32)
-        input_tensor = input_tensor / 127.5 - 1.0
-
-        # Ensures tensor has correct shape
-        input_tensor = tf.reshape(input_tensor, [image_size, image_size, 3])
-
-        # Expands the single tensor into a batch of 1
-        input_tensor = tf.expand_dims(input_tensor, 0)
-        return input_tensor
-
-    def postprocess_float_tensor_to_bitstring(output_tensor):
-        """ Transforms float32 tensor to image bitstring.
-
-            Args:
-                output_tensor: A float32 tensor representative of
-                    an inferred image.
-
-            Returns:
-                A bitstring representative of the inferred image.
-        """
-
-        # Converts to uint8 tensor
-        output_tensor = (output_tensor + 1.0) / 2.0
-        output_tensor = tf.image.convert_image_dtype(output_tensor, tf.uint8)
-
-        # Removes the batch dimension
-        output_tensor = tf.squeeze(output_tensor, [0])
-
-        # Transforms uint8 tensor to bitstring
-        output_bytes = tf.image.encode_png(output_tensor)
-        output_bytes = tf.identity(output_bytes, name="output_bytes")
-        return output_bytes
-
     def export_graph(self,
                      model_instance_inference_function,
+                     preprocess_function,
+                     postprocess_function,
                      model_name,
                      model_version,
                      checkpoint_dir,
                      protobuf_dir,
-                     image_size):
-        """ Injects bitstring input and output layers, then
+                     image_size,
+                     optional_preprocess_args=None,
+                     optional_postprocess_args=None):
+        """ Injects input and output layers, then
             exports model graph to ProtoBuf.
 
             Args:
-                model_instance_inference_function: A function which accepts
-                    a float32 tensor, performs inference, and returns the
-                    resultant float32 tensor.
+                model_instance_inference_function: A function which performs
+                    an inference.
+                preprocess_function: A function from the LayerInjector class
+                    which preprocesses input.
+                postprocess_function: A function from the LayerInjector class
+                    which postprocesses output.
                 model_name: The name of the model.
                 model_version: The version number of the model.
                 checkpoint_dir: The path to the model's checkpoints directory.
                 protobuf_dir: The path to the model's protobuf directory.
                 image_size: The input image size (e.g., 64).
+                optional_preprocess_args: Optional arguments for use with
+                    custom preprocess functions.
+                optional_postprocess_args: Optional arguments for use with
+                    custom postprocess functions.
         """
 
-        graph = tf.Graph()
+        # Creates placeholder for input bitstring
+        # Injects a bitstring layer into beginning of model
+        input_bytes = tf.placeholder(tf.string,
+                                     shape=[],
+                                     name="input_bytes")
+
+        graph = input_bytes.graph
+
+        # Preprocesses input bitstring
+        input_tensor = preprocess_function(input_bytes,
+                                           image_size,
+                                           optional_preprocess_args)
+
+        # Gets output tensor(s)
+        inference_output = model_instance_inference_function(input_tensor)
+        print(inference_output)
+
+        # Postprocesses output tensor(s)
+        output_tensors_dict, output_as_image = postprocess_function(
+                                                inference_output,
+                                                optional_postprocess_args)
+        print(output_tensors_dict)
 
         with graph.as_default():
-            # Creates placeholder for input bitstring
-            # Injects a bitstring layer into beginning of model
-            input_bytes = tf.placeholder(tf.string,
-                                         shape=[],
-                                         name="input_bytes")
-
-            # Preprocesses input bitstring
-            input_tensor = self.__preprocess_bitstring_to_float_tensor(
-                input_bytes, image_size)
-
-            # Gets output tensor
-            output_tensor = model_instance_inference_function(input_tensor)
-
-            # Postprocesses output tensor
-            output_bytes = self.__postprocess_float_tensor_to_bitstring(
-                output_tensor)
-
             # Instantiates a Saver
             saver = tf.train.Saver()
 
@@ -119,16 +82,20 @@ class ServerBuilder:
             latest_ckpt = tf.train.latest_checkpoint(checkpoint_dir)
             saver.restore(sess, latest_ckpt)
 
+            # [node.op.name for node in output_tensors_dict.values()]
             # Exports graph to ProtoBuf
             output_graph_def = tf.graph_util.convert_variables_to_constants(
-                sess, graph.as_graph_def(), [output_bytes.op.name])
+                sess, graph.as_graph_def(), list(output_tensors_dict.keys()))
 
             tf.train.write_graph(output_graph_def,
                                  protobuf_dir,
-                                 model_name + "_v" + str(model_version),
+                                 model_name + "_v" + str(model_version) + ".pb",
                                  as_text=False)
+        return output_tensors_dict, output_as_image
 
     def build_saved_model(self,
+                          output_tensors_dict,
+                          output_as_image,
                           model_name,
                           model_version,
                           protobuf_dir,
@@ -137,6 +104,10 @@ class ServerBuilder:
             signature definition for using the TensorFlow-Serving RESTful API.
 
             Args:
+                output_tensors_dict: A dictionary mapping tensor names to
+                    tensors. Returned by export_graph().
+                output_as_image: A boolean of whether the output of the
+                    model should be an image. Returned by export_graph().
                 model_name: The name of the model.
                 model_version: The version number of the model.
                 protobuf_dir: The path to the model's protobuf directory.
@@ -154,31 +125,62 @@ class ServerBuilder:
                             "/" +
                             model_name +
                             "_v" +
-                            str(model_version),
+                            str(model_version) +
+                            ".pb",
                             "rb") as protobuf_file:
             graph_def = tf.GraphDef()
             graph_def.ParseFromString(protobuf_file.read())
 
         # Gets input and output tensors from GraphDef
         # These are our injected bitstring layers
-        [inp, out] = tf.import_graph_def(graph_def,
-                                         name="",
-                                         return_elements=["input_bytes:0",
-                                                          "output_bytes:0"])
+        tensor_names = ["input_bytes:0"]
+        for name in output_tensors_dict.keys():
+            tensor_names.append(name + ":0")
 
-        with tf.Session(graph=out.graph) as sess:
-            # Signature_definition expects a batch
-            # So we'll turn the output bitstring into a batch of 1 element
-            out = tf.expand_dims(out, 0)
+        print(tensor_names)
+
+        io_tensors = tf.import_graph_def(graph_def,
+                                         name="",
+                                         return_elements=tensor_names)
+
+        print(io_tensors)
+
+        # Separates input and output tensors
+        # input_tensors = []
+        # output_tensors = []
+        # for tensor in io_tensors:
+        #     if tensor.name in list(output_tensors_dict.keys()):
+        #         output_tensor.append(tensor)
+        #     else:
+        #         input_tensor.append(tensor)
+
+        input_tensors = io_tensors[0]
+        output_tensors = io_tensors[1:]
+
+        with tf.Session(graph=output_tensors[0].graph) as sess:
+            sess.run(tf.global_variables_initializer())
 
             # Builds prototypes of input and output
-            input_bytes = tf.saved_model.utils.build_tensor_info(inp)
-            output_bytes = tf.saved_model.utils.build_tensor_info(out)
+            input_bytes = tf.saved_model.utils.build_tensor_info(io_tensors[0])
+
+            # Output as image requires "_bytes" suffix
+            # Otherwise make a dictionary of outputs
+            if output_as_image:
+                # Signature_definition expects a batch
+                # So we'll turn the output bitstring into a batch of 1 element
+                output_tensor = tf.expand_dims(output_tensors[0], 0)
+                output_bytes = tf.saved_model.utils.build_tensor_info(output_tensor)
+                output_tensor_info = {"output_bytes": output_bytes}
+            else:
+                output_tensor_info = {}
+                output_tensor_names = list(output_tensors_dict.keys())
+                for tensor, name in zip(output_tensors, output_tensor_names):
+                    output_tensor_info[name] = tf.saved_model.utils.build_tensor_info(tensor)
 
             # Creates signature for prediction
             signature_definition = tf.saved_model.signature_def_utils.build_signature_def(  # nopep8
                 inputs={"input_bytes": input_bytes},
-                outputs={"output_bytes": output_bytes},
+                outputs=output_tensor_info,
                 method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)  # nopep8
 
             # Adds meta-information
@@ -195,26 +197,57 @@ class ServerBuilder:
 
 def example_usage(_):
     sys.path.insert(0, "../CycleGAN-TensorFlow")
+    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")
+    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")
     import model  # nopep8
+    import model_builder  # nopep8
+    import pipeline_pb2  # nopep8
+    from google.protobuf import text_format  # nopep8
 
     # Instantiates a CycleGAN
     cycle_gan = model.CycleGAN(ngf=64,
                                norm="instance",
                                image_size=FLAGS.image_size)
 
+    pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
+    with tf.gfile.GFile("C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config", 'r') as f:
+        text_format.Merge(f.read(), pipeline_config)
+
+    detection_model = model_builder.build(pipeline_config.model,
+                                          is_training=False)
+
+    def object_detection_inference(input_tensors):
+        inputs = tf.to_float(input_tensors)
+        preprocessed_inputs, true_image_shapes = detection_model.preprocess(
+            inputs)
+        output_tensors = detection_model.predict(
+            preprocessed_inputs, true_image_shapes)
+        postprocessed_tensors = detection_model.postprocess(
+            output_tensors, true_image_shapes)
+
+        return postprocessed_tensors
+
     # Instantiates a ServerBuilder
     server_builder = ServerBuilder()
 
+    # Instantiates a LayerInjector
+    layer_injector = LayerInjector()
+
     # Exports model
     print("Exporting model to ProtoBuf...")
-    server_builder.export_graph(cycle_gan.G.sample,
+    output_tensors_dict, output_as_image = server_builder.export_graph(
+                                object_detection_inference,
+                                layer_injector.bitstring_to_uint8_tensor,
+                                layer_injector.object_detection_dict_to_tensor_dict,
                                 FLAGS.model_name,
                                 FLAGS.model_version,
                                 FLAGS.checkpoint_dir,
                                 FLAGS.protobuf_dir,
                                 FLAGS.image_size)
     print("Wrapping ProtoBuf in SavedModel...")
-    server_builder.build_saved_model(FLAGS.model_name,
+    server_builder.build_saved_model(output_tensors_dict,
+                                     output_as_image,
+                                     FLAGS.model_name,
                                      FLAGS.model_version,
                                      FLAGS.protobuf_dir,
                                      FLAGS.serve_dir)
@@ -246,7 +279,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--protobuf_dir",
                         type=str,
-                        default="",
+                        default="protobufs",
                         help="Path to protobufs directory")
 
     parser.add_argument("--serve_dir",
@@ -256,7 +289,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--image_size",
                         type=int,
-                        default=64,
+                        default=512,
                         help="Image size")
 
     # Parses known arguments

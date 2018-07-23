@@ -31,19 +31,25 @@ def inference(_):
         json_response = requests.post(FLAGS.url, data=data)
 
         # Extracts text from JSON
-        print(json_response)
         response = json.loads(json_response.text)
+        response = response["predictions"]
+
+        for prediction in response:
+            for k, v in prediction.items():
+                print(k + ": ")
+                print(v)
+                print()
 
         # Interprets bitstring output
-        response_string = response["predictions"][0]["b64"]
-        encoded_response_string = response_string.encode(FLAGS.encoding)
-        response_image = base64.b64decode(encoded_response_string)
+        # response_string = response["predictions"][0]["b64"]
+        # encoded_response_string = response_string.encode(FLAGS.encoding)
+        # response_image = base64.b64decode(encoded_response_string)
 
-        # Saves inferred image
-        output_file = FLAGS.output_dir + "/"
-        output_file += FLAGS.output_filename + str(i) + FLAGS.output_extension
-        with open(output_file, 'wb') as output_file:
-            output_file.write(response_image)
+        # # Saves inferred image
+        # output_file = FLAGS.output_dir + "/"
+        # output_file += FLAGS.output_filename + str(i) + FLAGS.output_extension
+        # with open(output_file, 'wb') as output_file:
+        #     output_file.write(response_image)
 
 
 if __name__ == "__main__":
@@ -64,7 +70,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--input_extension",
                         type=str,
-                        default=".png",
+                        default=".jpg",
                         help="Input file extension")
 
     parser.add_argument("--output_dir",
@@ -74,7 +80,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--output_filename",
                         type=str,
-                        default="sinusoidal",
+                        default="output",
                         help="Output file name")
 
     parser.add_argument("--output_extension",
