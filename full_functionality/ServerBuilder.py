@@ -7,10 +7,9 @@ import sys
 class ServerBuilder:
     """ Exports TensorFlow model for serving with RESTful API.
 
-        1. Injects bitstring input and output layers to the model.
+        1. Injects selected input and output layers to the model.
         2. Converts model checkpoint to ProtoBuf.
         3. Wraps in a SavedModel with a PREDICT signature definition.
-
     """
 
     def __init__(self):
@@ -46,6 +45,11 @@ class ServerBuilder:
                     custom preprocess functions.
                 optional_postprocess_args: Optional arguments for use with
                     custom postprocess functions.
+
+            Returns:
+                output_node_names: A list of the graph's output nodes.
+                output_as_image: A boolean set to True if the output is an
+                    encoded image.
         """
 
         # Creates placeholder for input bitstring
@@ -54,6 +58,7 @@ class ServerBuilder:
                                      shape=[],
                                      name="input_bytes")
 
+        # Sets graph
         graph = input_bytes.graph
 
         # Preprocesses input bitstring
@@ -63,13 +68,11 @@ class ServerBuilder:
 
         # Gets output tensor(s)
         inference_output = model_instance_inference_function(input_tensor)
-        print(inference_output)
 
         # Postprocesses output tensor(s)
-        output_tensors_dict, output_as_image = postprocess_function(
+        output_node_names, output_as_image = postprocess_function(
                                                 inference_output,
                                                 optional_postprocess_args)
-        print(output_tensors_dict)
 
         with graph.as_default():
             # Instantiates a Saver
@@ -82,19 +85,21 @@ class ServerBuilder:
             latest_ckpt = tf.train.latest_checkpoint(checkpoint_dir)
             saver.restore(sess, latest_ckpt)
 
-            # [node.op.name for node in output_tensors_dict.values()]
             # Exports graph to ProtoBuf
             output_graph_def = tf.graph_util.convert_variables_to_constants(
-                sess, graph.as_graph_def(), list(output_tensors_dict.keys()))
+                sess, graph.as_graph_def(), output_node_names)
 
+            # Saves ProtoBuf to disk
             tf.train.write_graph(output_graph_def,
                                  protobuf_dir,
-                                 model_name + "_v" + str(model_version) + ".pb",
+                                 model_name + "v" + str(model_version) + ".pb",
                                  as_text=False)
-        return output_tensors_dict, output_as_image
+
+        # Returns output node names and image boolean
+        return output_node_names, output_as_image
 
     def build_saved_model(self,
-                          output_tensors_dict,
+                          output_node_names,
                           output_as_image,
                           model_name,
                           model_version,
@@ -104,78 +109,71 @@ class ServerBuilder:
             signature definition for using the TensorFlow-Serving RESTful API.
 
             Args:
-                output_tensors_dict: A dictionary mapping tensor names to
-                    tensors. Returned by export_graph().
-                output_as_image: A boolean of whether the output of the
-                    model should be an image. Returned by export_graph().
+                output_node_names: A list of the output nodes in the graph.
+                    Returned by export_graph().
+                output_as_image: A boolean representing whether the output of
+                    the model is an image. Returned by export_graph().
                 model_name: The name of the model.
                 model_version: The version number of the model.
                 protobuf_dir: The path to the model's protobuf directory.
                 serve_dir: The path to the model's serve directory.
         """
 
-        # Instantiates a SavedModelBuilder
+        # Parses paths
         # Note that the serve directory MUST have a model version subdirectory
-        builder = tf.saved_model.builder.SavedModelBuilder(serve_dir +
-                                                           "/" +
-                                                           str(model_version))
+        model_version = str(model_version)
+        save_path = serve_dir + "/" + model_name + "/" + model_version
+        pb_path = protobuf_dir + "/" + model_name + "v" + model_version + ".pb"
+
+        # Instantiates a SavedModelBuilder
+        builder = tf.saved_model.builder.SavedModelBuilder(save_path)
 
         # Reads in ProtoBuf file
-        with tf.gfile.GFile(protobuf_dir +
-                            "/" +
-                            model_name +
-                            "_v" +
-                            str(model_version) +
-                            ".pb",
-                            "rb") as protobuf_file:
+        with tf.gfile.GFile(pb_path, "rb") as protobuf_file:
             graph_def = tf.GraphDef()
             graph_def.ParseFromString(protobuf_file.read())
 
-        # Gets input and output tensors from GraphDef
-        # These are our injected bitstring layers
+        # Builds list of input and output tensor names
         tensor_names = ["input_bytes:0"]
-        for name in output_tensors_dict.keys():
+        for name in output_node_names:
             tensor_names.append(name + ":0")
 
-        print(tensor_names)
-
+        # Gets input and output tensors from GraphDef
         io_tensors = tf.import_graph_def(graph_def,
                                          name="",
                                          return_elements=tensor_names)
 
-        print(io_tensors)
-
         # Separates input and output tensors
-        # input_tensors = []
-        # output_tensors = []
-        # for tensor in io_tensors:
-        #     if tensor.name in list(output_tensors_dict.keys()):
-        #         output_tensor.append(tensor)
-        #     else:
-        #         input_tensor.append(tensor)
-
-        input_tensors = io_tensors[0]
-        output_tensors = io_tensors[1:]
+        input_tensors = []
+        output_tensors = []
+        for tensor in io_tensors:
+            # TODO: shouldn't have to truncate, why does import graph def
+            # return tensors whose ops end in _1?
+            node_name = tensor.op.name[:-2]
+            if node_name in output_node_names:
+                output_tensors.append(tensor)
+            else:
+                input_tensors.append(tensor)
 
         with tf.Session(graph=output_tensors[0].graph) as sess:
             sess.run(tf.global_variables_initializer())
 
-            # Builds prototypes of input and output
-            input_bytes = tf.saved_model.utils.build_tensor_info(io_tensors[0])
+            # Builds prototype of input
+            input_bytes = tf.saved_model.utils.build_tensor_info(
+                                                              input_tensors[0])
 
-            # Output as image requires "_bytes" suffix
-            # Otherwise make a dictionary of outputs
+            # Builds dictionary of output prototypes
+            # Note that output as image MUST have "_bytes" suffix
             if output_as_image:
-                # Signature_definition expects a batch
-                # So we'll turn the output bitstring into a batch of 1 element
-                output_tensor = tf.expand_dims(output_tensors[0], 0)
-                output_bytes = tf.saved_model.utils.build_tensor_info(output_tensor)
-                output_tensor_info = {"output_bytes": output_bytes}
+                tensor_info = tf.saved_model.utils.build_tensor_info(
+                                                             output_tensors[0])
+                output_tensor_info = {"output_bytes": tensor_info}
             else:
                 output_tensor_info = {}
-                output_tensor_names = list(output_tensors_dict.keys())
-                for tensor, name in zip(output_tensors, output_tensor_names):
-                    output_tensor_info[name] = tf.saved_model.utils.build_tensor_info(tensor)
+                for tensor, name in zip(output_tensors, output_node_names):
+                    tensor_info = tf.saved_model.utils.build_tensor_info(
+                                                                        tensor)
+                    output_tensor_info[name] = tensor_info
 
             # Creates signature for prediction
             signature_definition = tf.saved_model.signature_def_utils.build_signature_def(  # nopep8
@@ -196,19 +194,20 @@ class ServerBuilder:
 
 
 def example_usage(_):
-    sys.path.insert(0, "../CycleGAN-TensorFlow")
+    # sys.path.insert(0, "../CycleGAN-TensorFlow")
     sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")
     sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")
-    import model  # nopep8
+    #import model  # nopep8
     import model_builder  # nopep8
     import pipeline_pb2  # nopep8
     from google.protobuf import text_format  # nopep8
 
-    # Instantiates a CycleGAN
-    cycle_gan = model.CycleGAN(ngf=64,
-                               norm="instance",
-                               image_size=FLAGS.image_size)
+    # # Instantiates a CycleGAN
+    # cycle_gan = model.CycleGAN(ngf=64,
+    #                            norm="instance",
+    #                            image_size=FLAGS.image_size)
 
+    # Builds object detection model from config file
     pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
     with tf.gfile.GFile("C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config", 'r') as f:
         text_format.Merge(f.read(), pipeline_config)
@@ -216,6 +215,7 @@ def example_usage(_):
     detection_model = model_builder.build(pipeline_config.model,
                                           is_training=False)
 
+    # Creates inference function, encapsulating object detection requirements
     def object_detection_inference(input_tensors):
         inputs = tf.to_float(input_tensors)
         preprocessed_inputs, true_image_shapes = detection_model.preprocess(
@@ -224,7 +224,6 @@ def example_usage(_):
             preprocessed_inputs, true_image_shapes)
         postprocessed_tensors = detection_model.postprocess(
             output_tensors, true_image_shapes)
-
         return postprocessed_tensors
 
     # Instantiates a ServerBuilder
@@ -235,7 +234,7 @@ def example_usage(_):
 
     # Exports model
     print("Exporting model to ProtoBuf...")
-    output_tensors_dict, output_as_image = server_builder.export_graph(
+    output_node_names, output_as_image = server_builder.export_graph(
                                 object_detection_inference,
                                 layer_injector.bitstring_to_uint8_tensor,
                                 layer_injector.object_detection_dict_to_tensor_dict,
@@ -245,7 +244,7 @@ def example_usage(_):
                                 FLAGS.protobuf_dir,
                                 FLAGS.image_size)
     print("Wrapping ProtoBuf in SavedModel...")
-    server_builder.build_saved_model(output_tensors_dict,
+    server_builder.build_saved_model(output_node_names,
                                      output_as_image,
                                      FLAGS.model_name,
                                      FLAGS.model_version,

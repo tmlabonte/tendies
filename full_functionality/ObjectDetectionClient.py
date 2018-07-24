@@ -1,7 +1,7 @@
+from Client import Client
 import tensorflow as tf
 import numpy as np
 import argparse
-from Client import Client
 import sys
 sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\utils")  # nopep8
 import visualization_utils  # nopep8
@@ -49,8 +49,8 @@ class ObjectDetectionClient(Client):
         self.image_size = image_size
         self.label_path = label_path
 
-    def get_category_index(self, label_path):
-            label_map = label_map_util.load_labelmap(label_path)
+    def get_category_index(self):
+            label_map = label_map_util.load_labelmap(self.label_path)
             categories = label_map_util.convert_label_map_to_categories(
                             label_map,
                             max_num_classes=1,
@@ -58,12 +58,11 @@ class ObjectDetectionClient(Client):
             category_index = label_map_util.create_category_index(categories)
             return category_index
 
-    def bitstring_to_uint8_tensor(self, input_bytes, image_size):
+    def bitstring_to_uint8_tensor(self, input_bytes):
         """ Transforms image bitstring to uint8 tensor.
 
             Args:
                 input_bytes: A bitstring representative of an input image.
-                image_size: The input image size (e.g., 512).
 
             Returns:
                 A uint8 tensor representative of the input image.
@@ -72,10 +71,11 @@ class ObjectDetectionClient(Client):
         input_bytes = tf.reshape(input_bytes, [])
 
         # Transforms bitstring to uint8 tensor
-        input_tensor = tf.image.decode_png(input_bytes, channels=3)
+        input_tensor = tf.image.decode_jpeg(input_bytes, channels=3)
 
         # Ensures tensor has correct shape
-        input_tensor = tf.reshape(input_tensor, [image_size, image_size, 3])
+        input_tensor = tf.reshape(input_tensor,
+                                  [self.image_size, self.image_size, 3])
 
         return input_tensor
 
@@ -90,10 +90,10 @@ class ObjectDetectionClient(Client):
         """
 
         # Processes response for visualization
-        image = self.bitstring_to_uint8_tensor(input_image)
         detection_boxes = response["detection_boxes"]
         detection_classes = response["detection_classes"]
         detection_scores = response["detection_scores"]
+        image = self.bitstring_to_uint8_tensor(input_image)
         with tf.Session() as sess:
             image = image.eval()
 
@@ -103,7 +103,7 @@ class ObjectDetectionClient(Client):
             np.asarray(detection_boxes, dtype=np.float32),
             np.asarray(detection_classes, dtype=np.uint8),
             scores=np.asarray(detection_scores, dtype=np.float32),
-            category_index=self.get_category_index(self.label_path),
+            category_index=self.get_category_index(),
             instance_masks=None,
             use_normalized_coordinates=True,
             line_thickness=2)
@@ -124,7 +124,7 @@ def example_usage(_):
                                                     FLAGS.output_extension,
                                                     FLAGS.encoding,
                                                     FLAGS.image_size,
-                                                    FLAGS.label)
+                                                    FLAGS.label_path)
     # Performs inference
     object_detection_client.inference()
 
@@ -175,7 +175,7 @@ if __name__ == "__main__":
                         default=512,
                         help="Image size")
 
-    parser.add_argument("--label",
+    parser.add_argument("--label_path",
                         type=str,
                         default="C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\label_data\\astronet_label_map_2.pbtxt",
                         help="Label map path")
