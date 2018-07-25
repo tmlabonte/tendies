@@ -201,6 +201,7 @@ def example_usage(_):
     import model_builder  # nopep8
     import pipeline_pb2  # nopep8
     from google.protobuf import text_format  # nopep8
+    CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config"
 
     # # Instantiates a CycleGAN
     # cycle_gan = model.CycleGAN(ngf=64,
@@ -209,8 +210,8 @@ def example_usage(_):
 
     # Builds object detection model from config file
     pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
-    with tf.gfile.GFile("C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config", 'r') as f:
-        text_format.Merge(f.read(), pipeline_config)
+    with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
+        text_format.Merge(config.read(), pipeline_config)
 
     detection_model = model_builder.build(pipeline_config.model,
                                           is_training=False)

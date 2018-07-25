@@ -12,7 +12,7 @@ class ObjectDetectionClient(Client):
     """ Object Detection API compliant client for a TensorFlow ModelServer.
 
         Performs inference on a directory of images by sending them
-        to the TensorFlow-Serving ModelServer, using its RESTful API.
+        to a TensorFlow-Serving ModelServer, using its RESTful API.
     """
 
     def __init__(self,
@@ -25,7 +25,7 @@ class ObjectDetectionClient(Client):
                  encoding,
                  image_size,
                  label_path):
-        """ Initializes a Client object.
+        """ Initializes an ObjectDetectionClient object.
 
             Args:
                 url: The URL of the TensorFlow ModelServer.
@@ -39,6 +39,7 @@ class ObjectDetectionClient(Client):
                 label_path: The path to the label mapping file.
         """
 
+        # Initializes a Client object
         super().__init__(url,
                          input_dir,
                          input_extension,
@@ -46,17 +47,24 @@ class ObjectDetectionClient(Client):
                          output_filename,
                          output_extension,
                          encoding)
+        # Adds child class specific member variables
         self.image_size = image_size
         self.label_path = label_path
 
     def get_category_index(self):
-            label_map = label_map_util.load_labelmap(self.label_path)
-            categories = label_map_util.convert_label_map_to_categories(
-                            label_map,
-                            max_num_classes=1,
-                            use_display_name=True)
-            category_index = label_map_util.create_category_index(categories)
-            return category_index
+        """ Transforms label map into category index for visualization.
+
+            Returns:
+                category_index: The category index corresponding to the given
+                    label map.
+        """
+        label_map = label_map_util.load_labelmap(self.label_path)
+        categories = label_map_util.convert_label_map_to_categories(
+                        label_map,
+                        max_num_classes=1,
+                        use_display_name=True)
+        category_index = label_map_util.create_category_index(categories)
+        return category_index
 
     def bitstring_to_uint8_tensor(self, input_bytes):
         """ Transforms image bitstring to uint8 tensor.
@@ -65,7 +73,7 @@ class ObjectDetectionClient(Client):
                 input_bytes: A bitstring representative of an input image.
 
             Returns:
-                A uint8 tensor representative of the input image.
+                input_tensor: A uint8 tensor representative of the input image.
         """
 
         input_bytes = tf.reshape(input_bytes, [])

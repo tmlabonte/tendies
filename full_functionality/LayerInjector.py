@@ -134,7 +134,7 @@ class LayerInjector:
         # Class labels are 1-indexed
         LABEL_ID_OFFSET = 1
 
-        # Populates output dict with postprocessed tensors
+        # Assigns names to tensors and adds them to output list
         output_node_names = []
         for name, tensor in object_detection_tensor_dict.items():
             if name == "detection_classes":

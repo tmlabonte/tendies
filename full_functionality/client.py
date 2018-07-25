@@ -11,7 +11,7 @@ class Client:
     """ Client for a TensorFlow ModelServer.
 
         Performs inference on a directory of images by sending them
-        to the TensorFlow-Serving ModelServer, using its RESTful API.
+        to a TensorFlow-Serving ModelServer, using its RESTful API.
 
         This version requires input and output to be images; see
         ObjectDetectionClient.py for a TF Object Detection API compliant class.
