@@ -35,9 +35,11 @@ class LayerInjector:
         """
 
         input_bytes = tf.reshape(input_bytes, [])
+        input_bytes = tf.cast(input_bytes, tf.string)
 
         # Transforms bitstring to uint8 tensor
-        input_tensor = tf.image.decode_png(input_bytes, channels=3)
+        # input_tensor = tf.image.decode_png(input_bytes, channels=3)
+        input_tensor = tf.image.decode_png(input_bytes, channels=1)
 
         # Converts to float32 tensor
         input_tensor = tf.image.convert_image_dtype(input_tensor,
@@ -45,7 +47,7 @@ class LayerInjector:
         input_tensor = input_tensor / 127.5 - 1.0
 
         # Ensures tensor has correct shape
-        input_tensor = tf.reshape(input_tensor, [image_size, image_size, 3])
+        input_tensor = tf.reshape(input_tensor, [image_size, image_size, 1])
 
         # Expands the single tensor into a batch of 1
         input_tensor = tf.expand_dims(input_tensor, 0)
@@ -75,7 +77,7 @@ class LayerInjector:
         return input_tensor
 
     def float32_tensor_to_bitstring(self, output_tensor, *args):
-        """ Transforms float32 tensor to dict of image bitstring.
+        """ Transforms float32 tensor to bitstring and returns nodes.
 
             Args:
                 output_tensor: A float32 tensor representative of
@@ -94,6 +96,7 @@ class LayerInjector:
         # Converts to uint8 tensor
         output_tensor = (output_tensor + 1.0) / 2.0
         output_tensor = tf.image.convert_image_dtype(output_tensor, tf.uint8)
+        output_tensor = tf.squeeze(output_tensor)
 
         # Transforms uint8 tensor to bitstring
         output_bytes = tf.image.encode_png(output_tensor)
@@ -105,6 +108,35 @@ class LayerInjector:
 
         # Returns output list and image boolean
         return output_node_names, OUTPUT_AS_IMAGE
+
+    def float32_tensor_to_bitstring_keras(self, output_tensor, *args):
+        """ Transforms float32 tensor to bitstring tensor
+
+            Args:
+                output_tensor: A float32 tensor representative of
+                    an inferred image.
+
+            Returns:
+                output_bytes: A bitstring tensor representative of
+                    an inferred image.
+        """
+
+        # Converts to uint8 tensor
+        output_tensor = (output_tensor + 1.0) / 2.0
+        output_tensor = tf.image.convert_image_dtype(output_tensor, tf.uint8)
+        output_tensor = tf.squeeze(output_tensor)
+
+        # Transforms uint8 tensor to bitstring
+        output_bytes = tf.image.encode_png(output_tensor)
+
+        # Adds name to bitstring tensor
+        output_bytes = tf.identity(output_bytes, name="output_bytes")
+
+        # Expands the single tensor into a batch of 1
+        output_bytes = tf.expand_dims(output_bytes, 0)
+
+        # Returns bitstring tensor
+        return output_bytes
 
     def object_detection_dict_to_tensor_dict(self,
                                              object_detection_tensor_dict,

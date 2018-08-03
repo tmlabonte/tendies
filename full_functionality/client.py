@@ -138,7 +138,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--input_extension",
                         type=str,
-                        default=".jpg",
+                        default=".png",
                         help="Input file extension")
 
     parser.add_argument("--output_dir",

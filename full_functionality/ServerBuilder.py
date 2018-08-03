@@ -1,5 +1,9 @@
-from LayerInjector import LayerInjector
 import tensorflow as tf
+from LayerInjector import LayerInjector
+from keras.engine.input_layer import Input
+from keras.models import Model, load_model
+from keras.layers import Lambda
+import keras.backend.tensorflow_backend as K
 import argparse
 import sys
 
@@ -82,7 +86,7 @@ class ServerBuilder:
             sess.run(tf.global_variables_initializer())
 
             # Accesses variables and weights from last checkpoint
-            latest_ckpt = tf.train.latest_checkpoint(checkpoint_dir)
+            latest_ckpt = tf.train.latest_checkpoint("C:\\research\\dlae\\models")
             saver.restore(sess, latest_ckpt)
 
             # Exports graph to ProtoBuf
@@ -98,13 +102,13 @@ class ServerBuilder:
         # Returns output node names and image boolean
         return output_node_names, output_as_image
 
-    def build_saved_model(self,
-                          output_node_names,
-                          output_as_image,
-                          model_name,
-                          model_version,
-                          protobuf_dir,
-                          serve_dir):
+    def build_saved_model_from_tf(self,
+                                  output_node_names,
+                                  output_as_image,
+                                  model_name,
+                                  model_version,
+                                  protobuf_dir,
+                                  serve_dir):
         """ Wraps a SavedModel around a ProtoBuf file with a PREDICT
             signature definition for using the TensorFlow-Serving RESTful API.
 
@@ -192,40 +196,118 @@ class ServerBuilder:
         # Creates the SavedModel
         builder.save()
 
+    def build_saved_model_from_keras(self,
+                                     keras_model,
+                                     preprocess_function,
+                                     postprocess_function,
+                                     model_name,
+                                     model_version,
+                                     serve_dir,
+                                     image_size):
+        # Parses paths
+        # Note that the serve directory MUST have a model version subdirectory
+        model_version = str(model_version)
+        save_path = serve_dir + "/" + model_name + "/" + model_version
+
+        # Instantiates placeholder for image bitstring
+        input_bytes = Input(shape=[], dtype=tf.string)
+
+        # Converts image bitstring to float32 tensor
+        input_tensor = Lambda(preprocess_function,
+                              arguments={"image_size": image_size})(input_bytes)
+
+        # Performs inference on tensor, returning a float32 tensor
+        output_tensor = keras_model(input_tensor)
+
+        # Converts float32 tensor to image bitstring
+        output_bytes = Lambda(postprocess_function)(output_tensor)
+
+        # Builds new Model
+        model = Model(input_bytes, output_bytes)
+
+        # Instantiates a SavedModelBuilder
+        builder = tf.saved_model.builder.SavedModelBuilder(save_path)
+
+        with tf.Session() as sess:
+            # Initializes model and variables
+            sess.run(tf.global_variables_initializer())
+
+            # Creates signature for prediction
+            signature_definition = tf.saved_model.signature_def_utils.predict_signature_def(  # nopep8
+                {"input_bytes": model.input},
+                {"output_bytes": model.output})
+
+            # Adds meta-information
+            builder.add_meta_graph_and_variables(
+                sess, [tf.saved_model.tag_constants.SERVING],
+                signature_def_map={
+                    tf.saved_model.signature_constants.
+                    DEFAULT_SERVING_SIGNATURE_DEF_KEY: signature_definition
+                })
+
+            # Saves the model
+            builder.save()
+
 
 def example_usage(_):
     # sys.path.insert(0, "../CycleGAN-TensorFlow")
-    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")
-    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")
-    #import model  # nopep8
-    import model_builder  # nopep8
-    import pipeline_pb2  # nopep8
-    from google.protobuf import text_format  # nopep8
-    CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config"
-
+    # import model  # nopep8
     # # Instantiates a CycleGAN
     # cycle_gan = model.CycleGAN(ngf=64,
     #                            norm="instance",
     #                            image_size=FLAGS.image_size)
 
-    # Builds object detection model from config file
-    pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
-    with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
-        text_format.Merge(config.read(), pipeline_config)
+    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")
+    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")
+    # import model_builder  # nopep8
+    # import pipeline_pb2  # nopep8
+    # from google.protobuf import text_format  # nopep8
+    # CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config"
 
-    detection_model = model_builder.build(pipeline_config.model,
-                                          is_training=False)
+    # # Builds object detection model from config file
+    # pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
+    # with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
+    #     text_format.Merge(config.read(), pipeline_config)
 
-    # Creates inference function, encapsulating object detection requirements
-    def object_detection_inference(input_tensors):
-        inputs = tf.to_float(input_tensors)
-        preprocessed_inputs, true_image_shapes = detection_model.preprocess(
-            inputs)
-        output_tensors = detection_model.predict(
-            preprocessed_inputs, true_image_shapes)
-        postprocessed_tensors = detection_model.postprocess(
-            output_tensors, true_image_shapes)
-        return postprocessed_tensors
+    # detection_model = model_builder.build(pipeline_config.model,
+    #                                       is_training=False)
+
+    # # Creates inference function, encapsulating object detection requirements
+    # def object_detection_inference(input_tensors):
+    #     inputs = tf.to_float(input_tensors)
+    #     preprocessed_inputs, true_image_shapes = detection_model.preprocess(
+    #         inputs)
+    #     output_tensors = detection_model.predict(
+    #         preprocessed_inputs, true_image_shapes)
+    #     postprocessed_tensors = detection_model.postprocess(
+    #         output_tensors, true_image_shapes)
+    #     return postprocessed_tensors
+
+    # # Exports model
+    # print("Exporting model to ProtoBuf...")
+    # output_node_names, output_as_image = server_builder.export_graph(
+    #                             sat_net.call,
+    #                             layer_injector.bitstring_to_float32_tensor,
+    #                             layer_injector.float32_tensor_to_bitstring,
+    #                             FLAGS.model_name,
+    #                             FLAGS.model_version,
+    #                             FLAGS.checkpoint_dir,
+    #                             FLAGS.protobuf_dir,
+    #                             FLAGS.image_size)
+    # print("Wrapping ProtoBuf in SavedModel...")
+    # server_builder.build_saved_model_from_tf(output_node_names,
+    #                                          output_as_image,
+    #                                          FLAGS.model_name,
+    #                                          FLAGS.model_version,
+    #                                          FLAGS.protobuf_dir,
+    #                                          FLAGS.serve_dir)
+    # print("Exported successfully!")
+    # print("""Run the server with:
+    #       tensorflow_model_server --rest_api_port=8501 """
+    #       "--model_name=saved_model --model_base_path=$(path)")
+
+    K.set_learning_phase(0)
+    keras_model = tf.keras.models.load_model(FLAGS.h5_filepath)
 
     # Instantiates a ServerBuilder
     server_builder = ServerBuilder()
@@ -234,27 +316,14 @@ def example_usage(_):
     layer_injector = LayerInjector()
 
     # Exports model
-    print("Exporting model to ProtoBuf...")
-    output_node_names, output_as_image = server_builder.export_graph(
-                                object_detection_inference,
-                                layer_injector.bitstring_to_uint8_tensor,
-                                layer_injector.object_detection_dict_to_tensor_dict,
-                                FLAGS.model_name,
-                                FLAGS.model_version,
-                                FLAGS.checkpoint_dir,
-                                FLAGS.protobuf_dir,
-                                FLAGS.image_size)
-    print("Wrapping ProtoBuf in SavedModel...")
-    server_builder.build_saved_model(output_node_names,
-                                     output_as_image,
-                                     FLAGS.model_name,
-                                     FLAGS.model_version,
-                                     FLAGS.protobuf_dir,
-                                     FLAGS.serve_dir)
-    print("Exported successfully!")
-    print("""Run the server with:
-          tensorflow_model_server --rest_api_port=8501 """
-          "--model_name=saved_model --model_base_path=$(path)")
+    print("Exporting Keras model to SavedModel...")
+    server_builder.build_saved_model_from_keras(keras_model,
+                                                layer_injector.bitstring_to_float32_tensor,
+                                                layer_injector.float32_tensor_to_bitstring_keras,
+                                                FLAGS.model_name,
+                                                FLAGS.model_version,
+                                                FLAGS.serve_dir,
+                                                FLAGS.image_size)
 
 
 if __name__ == "__main__":
@@ -271,6 +340,11 @@ if __name__ == "__main__":
                         type=int,
                         default=1,
                         help="Model version number")
+
+    parser.add_argument("--h5_filepath",
+                        type=str,
+                        default="",
+                        help="Optional Keras model filepath")
 
     parser.add_argument("--checkpoint_dir",
                         type=str,
