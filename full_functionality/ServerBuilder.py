@@ -28,6 +28,7 @@ class ServerBuilder:
                      checkpoint_dir,
                      protobuf_dir,
                      image_size,
+                     channels,
                      optional_preprocess_args=None,
                      optional_postprocess_args=None):
         """ Injects input and output layers, then
@@ -45,10 +46,11 @@ class ServerBuilder:
                 checkpoint_dir: The path to the model's checkpoints directory.
                 protobuf_dir: The path to the model's protobuf directory.
                 image_size: The input image size (e.g., 64).
-                optional_preprocess_args: Optional arguments for use with
-                    custom preprocess functions.
-                optional_postprocess_args: Optional arguments for use with
-                    custom postprocess functions.
+                channels: The number of channels of the input image.
+                optional_preprocess_args: Optional list of arguments for use
+                    with custom preprocess functions.
+                optional_postprocess_args: Optional list of arguments for use
+                    with custom postprocess functions.
 
             Returns:
                 output_node_names: A list of the graph's output nodes.
@@ -68,6 +70,7 @@ class ServerBuilder:
         # Preprocesses input bitstring
         input_tensor = preprocess_function(input_bytes,
                                            image_size,
+                                           channels,
                                            optional_preprocess_args)
 
         # Gets output tensor(s)
@@ -203,7 +206,10 @@ class ServerBuilder:
                                      model_name,
                                      model_version,
                                      serve_dir,
-                                     image_size):
+                                     image_size,
+                                     channels,
+                                     optional_preprocess_args={},
+                                     optional_postprocess_args={}):
         """ Injects input and output layers with Keras Lambdas, then
                 exports to SavedModel.
 
@@ -218,6 +224,11 @@ class ServerBuilder:
                 model_version: The version number of the model.
                 serve_dir: The path to the model's serve directory.
                 image_size: The input image size (e.g., 64).
+                channels: The number of channels of the input image.
+                optional_preprocess_args: Optional dict of arguments for use
+                    with custom preprocess functions.
+                optional_postprocess_args: Optional dict of arguments for use
+                    with custom postprocess functions.
         """
 
         # Parses paths
@@ -233,15 +244,19 @@ class ServerBuilder:
         input_bytes = Input(shape=[], dtype=tf.string)
 
         # Preprocesses image bitstring
-        input_tensor = Lambda(
-            preprocess_function,
-            arguments={"image_size": image_size})(input_bytes)
+        arg_dict = {"image_size": image_size, "channels": channels}
+        pre_map = dict(arg_dict, **optional_preprocess_args)
+        print(pre_map)
+        input_tensor = Lambda(preprocess_function,
+                              arguments=pre_map)(input_bytes)
 
         # Gets output tensor(s)
         output_tensor = keras_model(input_tensor)
 
         # Postprocesses output tensor(s)
-        output_bytes = Lambda(postprocess_function)(output_tensor)
+        post_map = optional_postprocess_args
+        output_bytes = Lambda(postprocess_function,
+                              arguments=post_map)(output_tensor)
 
         # Builds new Model
         model = Model(input_bytes, output_bytes)
@@ -297,7 +312,8 @@ def example_usage(_):
     #                             FLAGS.model_version,
     #                             FLAGS.checkpoint_dir,
     #                             FLAGS.protobuf_dir,
-    #                             FLAGS.image_size)
+    #                             FLAGS.image_size,
+    #                             FLAGS.channels)
     # print("Wrapping ProtoBuf in SavedModel...")
     # server_builder.build_saved_model_from_tf(output_node_names,
     #                                          output_as_image,
@@ -349,7 +365,8 @@ def example_usage(_):
     #                             FLAGS.model_version,
     #                             FLAGS.checkpoint_dir,
     #                             FLAGS.protobuf_dir,
-    #                             FLAGS.image_size)
+    #                             FLAGS.image_size,
+    #                             FLAGS.channels)
     # print("Wrapping ProtoBuf in SavedModel...")
     # server_builder.build_saved_model_from_tf(output_node_names,
     #                                          output_as_image,
@@ -374,7 +391,8 @@ def example_usage(_):
         FLAGS.model_name,
         FLAGS.model_version,
         FLAGS.serve_dir,
-        FLAGS.image_size)
+        FLAGS.image_size,
+        FLAGS.channels)
     print("Exported successfully!")
     print("""Run the server with:
           tensorflow_model_server --rest_api_port=8501 """
@@ -420,6 +438,11 @@ if __name__ == "__main__":
                         type=int,
                         default=512,
                         help="Image size")
+
+    parser.add_argument("--channels",
+                        type=int,
+                        default=3,
+                        help="Input image channels")
 
     # Parses known arguments
     FLAGS, unparsed = parser.parse_known_args()

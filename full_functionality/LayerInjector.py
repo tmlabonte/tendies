@@ -27,12 +27,17 @@ class LayerInjector:
     def __init__(self):
         pass
 
-    def bitstring_to_float32_tensor(self, input_bytes, image_size, *args):
+    def bitstring_to_float32_tensor(self,
+                                    input_bytes,
+                                    image_size,
+                                    channels,
+                                    *args):
         """ Transforms image bitstring to float32 tensor.
 
             Args:
                 input_bytes: A bitstring representative of an input image.
                 image_size: The input image size (e.g., 64).
+                channels: The number of channels in the input image.
 
             Returns:
                 A batched float32 tensor representative of the input image.
@@ -42,24 +47,30 @@ class LayerInjector:
         input_bytes = tf.cast(input_bytes, tf.string)
 
         # Transforms bitstring to uint8 tensor
-        input_tensor = tf.image.decode_png(input_bytes, channels=3)
+        input_tensor = tf.image.decode_png(input_bytes, channels=channels)
 
         # Converts to float32 tensor
         input_tensor = tf.image.convert_image_dtype(input_tensor, tf.float32)
 
         # Ensures tensor has correct shape
-        input_tensor = tf.reshape(input_tensor, [image_size, image_size, 1])
+        input_tensor = tf.reshape(input_tensor,
+                                  [image_size, image_size, channels])
 
         # Expands the single tensor into a batch of 1
         input_tensor = tf.expand_dims(input_tensor, 0)
         return input_tensor
 
-    def bitstring_to_uint8_tensor(self, input_bytes, image_size, *args):
+    def bitstring_to_uint8_tensor(self,
+                                  input_bytes,
+                                  image_size,
+                                  channels,
+                                  *args):
         """ Transforms image bitstring to uint8 tensor.
 
             Args:
                 input_bytes: A bitstring representative of an input image.
                 image_size: The input image size (e.g., 64).
+                channels: The number of channels of the input image.
 
             Returns:
                 A batched uint8 tensor representative of the input image.
@@ -68,10 +79,11 @@ class LayerInjector:
         input_bytes = tf.reshape(input_bytes, [])
 
         # Transforms bitstring to uint8 tensor
-        input_tensor = tf.image.decode_png(input_bytes, channels=3)
+        input_tensor = tf.image.decode_png(input_bytes, channels=channels)
 
         # Ensures tensor has correct shape
-        input_tensor = tf.reshape(input_tensor, [image_size, image_size, 3])
+        input_tensor = tf.reshape(input_tensor,
+                                  [image_size, image_size, channels])
 
         # Expands the single tensor into a batch of 1
         input_tensor = tf.expand_dims(input_tensor, 0)
