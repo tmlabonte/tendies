@@ -115,6 +115,9 @@ class LayerInjector:
         # Transforms uint8 tensor to bitstring
         output_bytes = tf.image.encode_png(output_tensor)
 
+        # Expands the single tensor into a batch of 1
+        output_bytes = tf.expand_dims(output_bytes, 0)
+
         output_bytes = tf.identity(output_bytes, name="output_bytes")
 
         # Adds output node name to list
@@ -211,7 +214,8 @@ class LayerInjector:
         # x is the length of a side, n is the number of segmentation classes
         # x = output_tensor.get_shape().as_list()[0]
         # n = output_tensor.get_shape().as_list()[1]
-        # output_tensor = tf.reshape(output_tensor, [x, x, n])
+        # output_tensor = tf.reshape(output_tensor,
+        #                            [int(math.sqrt(x)), int(math.sqrt(x)), n])
 
         # Sets classes by choosing the highest, reducing channels to 1
         output_tensor = tf.argmax(output_tensor, axis=2)
@@ -219,7 +223,7 @@ class LayerInjector:
 
         # Converts to uint8 tensor
         output_tensor = tf.cast(output_tensor, tf.uint8)
-        output_tensor *= 255
+        # output_tensor *= 255
 
         # Transforms uint8 tensor to bitstring
         output_bytes = tf.image.encode_png(output_tensor)

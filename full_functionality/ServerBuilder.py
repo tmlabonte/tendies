@@ -246,7 +246,6 @@ class ServerBuilder:
         # Preprocesses image bitstring
         arg_dict = {"image_size": image_size, "channels": channels}
         pre_map = dict(arg_dict, **optional_preprocess_args)
-        print(pre_map)
         input_tensor = Lambda(preprocess_function,
                               arguments=pre_map)(input_bytes)
 
@@ -301,13 +300,13 @@ def example_usage(_):
     # cycle_gan = model.CycleGAN(ngf=64,
     #                            norm="instance",
     #                            image_size=FLAGS.image_size)
-    #
+    
     # # Exports model
     # print("Exporting model to ProtoBuf...")
     # output_node_names, output_as_image = server_builder.export_graph(
     #                             cycle_gan.G.sample,
-    #                             layer_injector.bitstring_to_uint8_tensor,
-    #                             layer_injector.uint8_tensor_to_bitstring,
+    #                             layer_injector.bitstring_to_float32_tensor,
+    #                             layer_injector.float32_tensor_to_bitstring,
     #                             FLAGS.model_name,
     #                             FLAGS.model_version,
     #                             FLAGS.checkpoint_dir,
@@ -335,15 +334,15 @@ def example_usage(_):
     # import pipeline_pb2  # nopep8
     # from google.protobuf import text_format  # nopep8
     # CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config"
-    #
+    
     # # Builds object detection model from config file
     # pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
     # with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
     #     text_format.Merge(config.read(), pipeline_config)
-    #
+    
     # detection_model = model_builder.build(pipeline_config.model,
     #                                       is_training=False)
-    #
+    
     # # Creates inference function, encapsulating object detection requirements
     # def object_detection_inference(input_tensors):
     #     inputs = tf.to_float(input_tensors)
@@ -354,13 +353,13 @@ def example_usage(_):
     #     postprocessed_tensors = detection_model.postprocess(
     #         output_tensors, true_image_shapes)
     #     return postprocessed_tensors
-    #
+    
     # # Exports model
     # print("Exporting model to ProtoBuf...")
     # output_node_names, output_as_image = server_builder.export_graph(
-    #                             detection_model.predict,
-    #                             layer_injector.bitstring_to_float32_tensor,
-    #                             layer_injector.float32_tensor_to_bitstring,
+    #                             object_detection_inference,
+    #                             layer_injector.bitstring_to_uint8_tensor,
+    #                             layer_injector.object_detection_dict_to_tensor_dict,
     #                             FLAGS.model_name,
     #                             FLAGS.model_version,
     #                             FLAGS.checkpoint_dir,
@@ -383,20 +382,20 @@ def example_usage(_):
     # Arbitrary Keras Model (Image-to-Image in Keras)
     ###################################################################
     # Exports model
-    print("Exporting Keras model to SavedModel...")
-    server_builder.build_saved_model_from_keras(
-        FLAGS.h5_filepath,
-        layer_injector.bitstring_to_float32_tensor,
-        layer_injector.segmentation_map_to_bitstring_keras,
-        FLAGS.model_name,
-        FLAGS.model_version,
-        FLAGS.serve_dir,
-        FLAGS.image_size,
-        FLAGS.channels)
-    print("Exported successfully!")
-    print("""Run the server with:
-          tensorflow_model_server --rest_api_port=8501 """
-          "--model_name=saved_model --model_base_path=$(path)")
+    # print("Exporting Keras model to SavedModel...")
+    # server_builder.build_saved_model_from_keras(
+    #     FLAGS.h5_filepath,
+    #     layer_injector.bitstring_to_float32_tensor,
+    #     layer_injector.segmentation_map_to_bitstring_keras,
+    #     FLAGS.model_name,
+    #     FLAGS.model_version,
+    #     FLAGS.serve_dir,
+    #     FLAGS.image_size,
+    #     FLAGS.channels)
+    # print("Exported successfully!")
+    # print("""Run the server with:
+    #       tensorflow_model_server --rest_api_port=8501 """
+    #       "--model_name=saved_model --model_base_path=$(path)")
 
 
 if __name__ == "__main__":
