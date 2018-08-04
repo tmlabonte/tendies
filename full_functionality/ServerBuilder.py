@@ -300,7 +300,7 @@ def example_usage(_):
     # cycle_gan = model.CycleGAN(ngf=64,
     #                            norm="instance",
     #                            image_size=FLAGS.image_size)
-    
+    #
     # # Exports model
     # print("Exporting model to ProtoBuf...")
     # output_node_names, output_as_image = server_builder.export_graph(
@@ -328,60 +328,60 @@ def example_usage(_):
     ###################################################################
     # Faster R-CNN (Image to Object Detection API Tensors to Image in pure TF)
     ###################################################################
-    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")
-    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")
-    # import model_builder  # nopep8
-    # import pipeline_pb2  # nopep8
-    # from google.protobuf import text_format  # nopep8
-    # CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config"
+    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")  # nopep8
+    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")  # nopep8
+    import model_builder  # nopep8
+    import pipeline_pb2  # nopep8
+    from google.protobuf import text_format  # nopep8
+    CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config"  # nopep8
     
-    # # Builds object detection model from config file
-    # pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
-    # with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
-    #     text_format.Merge(config.read(), pipeline_config)
+    # Builds object detection model from config file
+    pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
+    with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
+        text_format.Merge(config.read(), pipeline_config)
     
-    # detection_model = model_builder.build(pipeline_config.model,
-    #                                       is_training=False)
+    detection_model = model_builder.build(pipeline_config.model,
+                                          is_training=False)
     
-    # # Creates inference function, encapsulating object detection requirements
-    # def object_detection_inference(input_tensors):
-    #     inputs = tf.to_float(input_tensors)
-    #     preprocessed_inputs, true_image_shapes = detection_model.preprocess(
-    #         inputs)
-    #     output_tensors = detection_model.predict(
-    #         preprocessed_inputs, true_image_shapes)
-    #     postprocessed_tensors = detection_model.postprocess(
-    #         output_tensors, true_image_shapes)
-    #     return postprocessed_tensors
+    # Creates inference function, encapsulating object detection requirements
+    def object_detection_inference(input_tensors):
+        inputs = tf.to_float(input_tensors)
+        preprocessed_inputs, true_image_shapes = detection_model.preprocess(
+            inputs)
+        output_tensors = detection_model.predict(
+            preprocessed_inputs, true_image_shapes)
+        postprocessed_tensors = detection_model.postprocess(
+            output_tensors, true_image_shapes)
+        return postprocessed_tensors
     
-    # # Exports model
-    # print("Exporting model to ProtoBuf...")
-    # output_node_names, output_as_image = server_builder.export_graph(
-    #                             object_detection_inference,
-    #                             layer_injector.bitstring_to_uint8_tensor,
-    #                             layer_injector.object_detection_dict_to_tensor_dict,
-    #                             FLAGS.model_name,
-    #                             FLAGS.model_version,
-    #                             FLAGS.checkpoint_dir,
-    #                             FLAGS.protobuf_dir,
-    #                             FLAGS.image_size,
-    #                             FLAGS.channels)
-    # print("Wrapping ProtoBuf in SavedModel...")
-    # server_builder.build_saved_model_from_tf(output_node_names,
-    #                                          output_as_image,
-    #                                          FLAGS.model_name,
-    #                                          FLAGS.model_version,
-    #                                          FLAGS.protobuf_dir,
-    #                                          FLAGS.serve_dir)
-    # print("Exported successfully!")
-    # print("""Run the server with:
-    #       tensorflow_model_server --rest_api_port=8501 """
-    #       "--model_name=saved_model --model_base_path=$(path)")
+    # Exports model
+    print("Exporting model to ProtoBuf...")
+    output_node_names, output_as_image = server_builder.export_graph(
+                                object_detection_inference,
+                                layer_injector.bitstring_to_uint8_tensor,
+                                layer_injector.object_detection_dict_to_tensor_dict,  # nopep8
+                                FLAGS.model_name,
+                                FLAGS.model_version,
+                                FLAGS.checkpoint_dir,
+                                FLAGS.protobuf_dir,
+                                FLAGS.image_size,
+                                FLAGS.channels)
+    print("Wrapping ProtoBuf in SavedModel...")
+    server_builder.build_saved_model_from_tf(output_node_names,
+                                             output_as_image,
+                                             FLAGS.model_name,
+                                             FLAGS.model_version,
+                                             FLAGS.protobuf_dir,
+                                             FLAGS.serve_dir)
+    print("Exported successfully!")
+    print("""Run the server with:
+          tensorflow_model_server --rest_api_port=8501 """
+          "--model_name=saved_model --model_base_path=$(path)")
 
     ###################################################################
     # Arbitrary Keras Model (Image-to-Image in Keras)
     ###################################################################
-    # Exports model
+    # # Exports model
     # print("Exporting Keras model to SavedModel...")
     # server_builder.build_saved_model_from_keras(
     #     FLAGS.h5_filepath,

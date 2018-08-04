@@ -1,6 +1,7 @@
 # Tendies: TensorFlow Distributed Image Serving
 A lightweight, RESTful remote inference library for decoupling deep learning development and application.
 Includes CycleGAN and the TensorFlow Object Detection Faster R-CNN as usage examples.
+Now supports Keras models.
 
 ## Motivation
 A major challenge in combining deep learning and software engineering as we move towards [Software 2.0](https://medium.com/@karpathy/software-2-0-a64152b37c35) is that deep learning _development_ and _application_ are tightly coupled. This restricts deployment of models in several ways, for example:
