@@ -7,7 +7,7 @@ class LayerInjector:
         are used for preprocessing and postprocessing.
 
         Each preprocessing function must take as arguments serving input
-        (usually an image bitstring), image_size, and *args, where *args can be
+        (usually an image bitstring), channels and *args, where *args can be
         used to represent any number of positional arguments. It will return
         the model input.
 
@@ -18,7 +18,7 @@ class LayerInjector:
 
         Users of ServerBuilder can utilize *args by passing a list of
         arguments as the optional_preprocess_args or optional_postprocess_args
-        parameters in ServerBuilder.export_graph().
+        parameters in ServerBuilder.build_server().
 
         Note: Keras functions should use **kwargs instead of *args to be
         compatible with Lambda layers.
@@ -29,14 +29,12 @@ class LayerInjector:
 
     def bitstring_to_float32_tensor(self,
                                     input_bytes,
-                                    image_size,
                                     channels,
                                     *args):
         """ Transforms image bitstring to float32 tensor.
 
             Args:
                 input_bytes: A bitstring representative of an input image.
-                image_size: The input image size (e.g., 64).
                 channels: The number of channels in the input image.
 
             Returns:
@@ -44,7 +42,6 @@ class LayerInjector:
         """
 
         input_bytes = tf.reshape(input_bytes, [])
-        input_bytes = tf.cast(input_bytes, tf.string)
 
         # Transforms bitstring to uint8 tensor
         input_tensor = tf.image.decode_png(input_bytes, channels=channels)
@@ -52,24 +49,18 @@ class LayerInjector:
         # Converts to float32 tensor
         input_tensor = tf.image.convert_image_dtype(input_tensor, tf.float32)
 
-        # Ensures tensor has correct shape
-        input_tensor = tf.reshape(input_tensor,
-                                  [image_size, image_size, channels])
-
         # Expands the single tensor into a batch of 1
         input_tensor = tf.expand_dims(input_tensor, 0)
         return input_tensor
 
     def bitstring_to_uint8_tensor(self,
                                   input_bytes,
-                                  image_size,
                                   channels,
                                   *args):
         """ Transforms image bitstring to uint8 tensor.
 
             Args:
                 input_bytes: A bitstring representative of an input image.
-                image_size: The input image size (e.g., 64).
                 channels: The number of channels of the input image.
 
             Returns:
@@ -80,10 +71,6 @@ class LayerInjector:
 
         # Transforms bitstring to uint8 tensor
         input_tensor = tf.image.decode_png(input_bytes, channels=channels)
-
-        # Ensures tensor has correct shape
-        input_tensor = tf.reshape(input_tensor,
-                                  [image_size, image_size, channels])
 
         # Expands the single tensor into a batch of 1
         input_tensor = tf.expand_dims(input_tensor, 0)
@@ -118,6 +105,7 @@ class LayerInjector:
         # Expands the single tensor into a batch of 1
         output_bytes = tf.expand_dims(output_bytes, 0)
 
+        # Adds name to bitstring tensor
         output_bytes = tf.identity(output_bytes, name="output_bytes")
 
         # Adds output node name to list
@@ -186,11 +174,11 @@ class LayerInjector:
         # Transforms uint8 tensor to bitstring
         output_bytes = tf.image.encode_png(output_tensor)
 
-        # Adds name to bitstring tensor
-        output_bytes = tf.identity(output_bytes, name="output_bytes")
-
         # Expands the single tensor into a batch of 1
         output_bytes = tf.expand_dims(output_bytes, 0)
+
+        # Adds name to bitstring tensor
+        output_bytes = tf.identity(output_bytes, name="output_bytes")
 
         # Returns bitstring tensor
         return output_bytes
@@ -228,11 +216,11 @@ class LayerInjector:
         # Transforms uint8 tensor to bitstring
         output_bytes = tf.image.encode_png(output_tensor)
 
-        # Adds name to bitstring tensor
-        output_bytes = tf.identity(output_bytes, name="output_bytes")
-
         # Expands the single tensor into a batch of 1
         output_bytes = tf.expand_dims(output_bytes, 0)
+
+        # Adds name to bitstring tensor
+        output_bytes = tf.identity(output_bytes, name="output_bytes")
 
         # Returns bitstring tensor
         return output_bytes

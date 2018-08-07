@@ -1,11 +1,20 @@
 import tensorflow as tf
-from LayerInjector import LayerInjector
+from tensorflow.saved_model.builder import SavedModelBuilder
+from tensorflow.saved_model.signature_constants import PREDICT_METHOD_NAME
+from tensorflow.saved_model.signature_constants import DEFAULT_SERVING_SIGNATURE_DEF_KEY  # nopep8
+from tensorflow.saved_model.signature_def_utils import build_signature_def
+from tensorflow.saved_model.tag_constants import SERVING
+from tensorflow.saved_model.utils import build_tensor_info
+
+import keras.backend.tensorflow_backend as K
 from keras.engine.input_layer import Input
 from keras.models import Model, load_model
 from keras.layers import Lambda
-import keras.backend.tensorflow_backend as K
+
+from LayerInjector import LayerInjector
 import argparse
 import sys
+import os
 
 
 class ServerBuilder:
@@ -19,23 +28,67 @@ class ServerBuilder:
     def __init__(self):
         pass
 
-    def export_graph(self,
-                     model_instance_inference_function,
-                     preprocess_function,
-                     postprocess_function,
-                     model_name,
-                     model_version,
-                     checkpoint_dir,
-                     protobuf_dir,
-                     image_size,
-                     channels,
-                     optional_preprocess_args=None,
-                     optional_postprocess_args=None):
+    def __create_savedmodel(self,
+                            save_path,
+                            input_tensor_info_dict,
+                            output_tensor_info_dict,
+                            graph=None):
+        """ Creates a SavedModel by building signature via tensor info,
+            then writes to disk.
+
+            Args:
+                save_path: The save path for the SavedModel.
+                input_tensor_info_dict: A dictionary containing the input
+                    tensor info for the SavedModel.
+                output_tensor_info_dict: A dictionary containing the output
+                    tensor info for the SavedModel.
+                graph: The graph to run the tf.Session with. Defaults to
+                    tf.Graph().
+        """
+
+        # Graph is default if unspecified, otherwise set it to the argument
+        graph = tf.Graph() if graph is None else graph
+
+        # Instantiates a SavedModelBuilder
+        builder = SavedModelBuilder(save_path)
+
+        with tf.Session(graph=graph) as sess:
+            # Initializes model and variables
+            sess.run(tf.global_variables_initializer())
+
+            # Creates signature for prediction
+            # TODO: Implement classification signature - see the
+            # Object Detection API's exporter.py for example
+            signature_definition = build_signature_def(
+                input_tensor_info_dict,
+                output_tensor_info_dict,
+                method_name=PREDICT_METHOD_NAME)
+
+            # Adds meta-information
+            builder.add_meta_graph_and_variables(
+                sess, [SERVING],
+                signature_def_map={
+                    DEFAULT_SERVING_SIGNATURE_DEF_KEY: signature_definition
+                })
+
+        # Writes the SavedModel to disk
+        builder.save()
+
+    def __export_graph_to_protobuf(self,
+                                   inference_function,
+                                   preprocess_function,
+                                   postprocess_function,
+                                   model_name,
+                                   model_version,
+                                   checkpoint_dir,
+                                   channels,
+                                   optional_preprocess_args,
+                                   optional_postprocess_args):
         """ Injects input and output layers, then
             exports model graph to ProtoBuf.
 
             Args:
-                model_instance_inference_function: A function which performs
+                inference_function: A function which performs
                     an inference.
                 preprocess_function: A function from the LayerInjector class
                     which preprocesses input.
@@ -44,8 +97,6 @@ class ServerBuilder:
                 model_name: The name of the model.
                 model_version: The version number of the model.
                 checkpoint_dir: The path to the model's checkpoints directory.
-                protobuf_dir: The path to the model's protobuf directory.
-                image_size: The input image size (e.g., 64).
                 channels: The number of channels of the input image.
                 optional_preprocess_args: Optional list of arguments for use
                     with custom preprocess functions.
@@ -69,12 +120,11 @@ class ServerBuilder:
 
         # Preprocesses input bitstring
         input_tensor = preprocess_function(input_bytes,
-                                           image_size,
                                            channels,
                                            optional_preprocess_args)
 
         # Gets output tensor(s)
-        inference_output = model_instance_inference_function(input_tensor)
+        inference_output = inference_function(input_tensor)
 
         # Postprocesses output tensor(s)
         output_node_names, output_as_image = postprocess_function(
@@ -86,6 +136,7 @@ class ServerBuilder:
             saver = tf.train.Saver()
 
         with tf.Session(graph=graph) as sess:
+            # Initializes model and variables
             sess.run(tf.global_variables_initializer())
 
             # Accesses variables and weights from last checkpoint
@@ -98,22 +149,25 @@ class ServerBuilder:
 
             # Saves ProtoBuf to disk
             tf.train.write_graph(output_graph_def,
-                                 protobuf_dir,
-                                 model_name + "v" + str(model_version) + ".pb",
+                                 "./",
+                                 "temp.pb",
                                  as_text=False)
 
         # Returns output node names and image boolean
         return output_node_names, output_as_image
 
-    def build_saved_model_from_tf(self,
-                                  output_node_names,
-                                  output_as_image,
-                                  model_name,
-                                  model_version,
-                                  protobuf_dir,
-                                  serve_dir):
+    def __wrap_savedmodel_around_protobuf(self,
+                                          output_node_names,
+                                          output_as_image,
+                                          model_name,
+                                          model_version,
+                                          serve_dir):
         """ Wraps a SavedModel around a ProtoBuf file with a PREDICT
             signature definition for using the TensorFlow-Serving RESTful API.
+
+            Designed to be called immediately after
+            ServerBuilder.__export_graph_to_protobuf(), with that function's
+            outputs as inputs.
 
             Args:
                 output_node_names: A list of the output nodes in the graph.
@@ -122,7 +176,6 @@ class ServerBuilder:
                     the model is an image. Returned by export_graph().
                 model_name: The name of the model.
                 model_version: The version number of the model.
-                protobuf_dir: The path to the model's protobuf directory.
                 serve_dir: The path to the model's serve directory.
         """
 
@@ -130,15 +183,14 @@ class ServerBuilder:
         # Note that the serve directory MUST have a model version subdirectory
         model_version = str(model_version)
         save_path = serve_dir + "/" + model_name + "/" + model_version
-        pb_path = protobuf_dir + "/" + model_name + "v" + model_version + ".pb"
-
-        # Instantiates a SavedModelBuilder
-        builder = tf.saved_model.builder.SavedModelBuilder(save_path)
 
         # Reads in ProtoBuf file
-        with tf.gfile.GFile(pb_path, "rb") as protobuf_file:
+        with tf.gfile.GFile("temp.pb", "rb") as protobuf_file:
             graph_def = tf.GraphDef()
             graph_def.ParseFromString(protobuf_file.read())
+
+        # Deletes ProtoBuf file
+        os.remove("temp.pb")
 
         # Builds list of input and output tensor names
         tensor_names = ["input_bytes:0"]
@@ -162,68 +214,50 @@ class ServerBuilder:
             else:
                 input_tensors.append(tensor)
 
-        with tf.Session(graph=output_tensors[0].graph) as sess:
-            sess.run(tf.global_variables_initializer())
+        # Builds prototype of input
+        input_bytes = build_tensor_info(input_tensors[0])
+        input_tensor_info = {"input_bytes": input_bytes}
 
-            # Builds prototype of input
-            input_bytes = tf.saved_model.utils.build_tensor_info(
-                input_tensors[0])
+        # Builds dictionary of output prototypes
+        # Note that output as image MUST have "_bytes" suffix
+        if output_as_image:
+            tensor_info = build_tensor_info(output_tensors[0])
+            output_tensor_info = {"output_bytes": tensor_info}
+        else:
+            output_tensor_info = {}
+            for tensor, name in zip(output_tensors, output_node_names):
+                tensor_info = build_tensor_info(tensor)
+                output_tensor_info[name] = tensor_info
 
-            # Builds dictionary of output prototypes
-            # Note that output as image MUST have "_bytes" suffix
-            if output_as_image:
-                tensor_info = tf.saved_model.utils.build_tensor_info(
-                    output_tensors[0])
-                output_tensor_info = {"output_bytes": tensor_info}
-            else:
-                output_tensor_info = {}
-                for tensor, name in zip(output_tensors, output_node_names):
-                    tensor_info = tf.saved_model.utils.build_tensor_info(
-                        tensor)
-                    output_tensor_info[name] = tensor_info
+        # Creates and saves SavedModel
+        self.__create_savedmodel(save_path,
+                                 input_tensor_info,
+                                 output_tensor_info,
+                                 graph=output_tensors[0].graph)
 
-            # Creates signature for prediction
-            signature_definition = tf.saved_model.signature_def_utils.build_signature_def(  # nopep8
-                inputs={"input_bytes": input_bytes},
-                outputs=output_tensor_info,
-                method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)  # nopep8
-
-            # Adds meta-information
-            builder.add_meta_graph_and_variables(
-                sess, [tf.saved_model.tag_constants.SERVING],
-                signature_def_map={
-                    tf.saved_model.signature_constants.
-                    DEFAULT_SERVING_SIGNATURE_DEF_KEY: signature_definition
-                })
-
-        # Creates the SavedModel
-        builder.save()
-
-    def build_saved_model_from_keras(self,
-                                     h5_filepath,
-                                     preprocess_function,
-                                     postprocess_function,
-                                     model_name,
-                                     model_version,
-                                     serve_dir,
-                                     image_size,
-                                     channels,
-                                     optional_preprocess_args={},
-                                     optional_postprocess_args={}):
+    def __wrap_savedmodel_around_keras(self,
+                                       preprocess_function,
+                                       postprocess_function,
+                                       model_name,
+                                       model_version,
+                                       h5_filepath,
+                                       serve_dir,
+                                       channels,
+                                       optional_preprocess_args,
+                                       optional_postprocess_args):
         """ Injects input and output layers with Keras Lambdas, then
-                exports to SavedModel.
+            exports to SavedModel.
 
             Args:
-                h5_filepath: The filepath to a .h5 file containing an
-                    exported Keras model.
                 preprocess_function: A function from the LayerInjector class
                     which preprocesses input.
                 postprocess_function: A function from the LayerInjector class
                     which postprocesses output.
                 model_name: The name of the model.
                 model_version: The version number of the model.
+                h5_filepath: The filepath to a .h5 file containing an
+                    exported Keras model.
                 serve_dir: The path to the model's serve directory.
-                image_size: The input image size (e.g., 64).
                 channels: The number of channels of the input image.
                 optional_preprocess_args: Optional dict of arguments for use
                     with custom preprocess functions.
@@ -244,7 +278,7 @@ class ServerBuilder:
         input_bytes = Input(shape=[], dtype=tf.string)
 
         # Preprocesses image bitstring
-        arg_dict = {"image_size": image_size, "channels": channels}
+        arg_dict = {"channels": channels}
         pre_map = dict(arg_dict, **optional_preprocess_args)
         input_tensor = Lambda(preprocess_function,
                               arguments=pre_map)(input_bytes)
@@ -260,28 +294,127 @@ class ServerBuilder:
         # Builds new Model
         model = Model(input_bytes, output_bytes)
 
-        # Instantiates a SavedModelBuilder
-        builder = tf.saved_model.builder.SavedModelBuilder(save_path)
+        # Builds input/output tensor protos
+        input_tensor_info = {"input_bytes": model.input}
+        output_tensor_info = {"output_bytes": model.output}
 
-        with tf.Session() as sess:
-            # Initializes model and variables
-            sess.run(tf.global_variables_initializer())
+        # Creates and saves SavedModel
+        self.__create_savedmodel(save_path,
+                                 input_tensor_info,
+                                 output_tensor_info)
 
-            # Creates signature for prediction
-            signature_definition = tf.saved_model.signature_def_utils.predict_signature_def(  # nopep8
-                {"input_bytes": model.input},
-                {"output_bytes": model.output})
+    def build_server_from_tf(self,
+                             inference_function,
+                             preprocess_function,
+                             postprocess_function,
+                             model_name,
+                             model_version,
+                             checkpoint_dir,
+                             serve_dir,
+                             channels,
+                             optional_preprocess_args=[],
+                             optional_postprocess_args=[]):
+        """ Builds a Tendies server from a TensorFlow model.
 
-            # Adds meta-information
-            builder.add_meta_graph_and_variables(
-                sess, [tf.saved_model.tag_constants.SERVING],
-                signature_def_map={
-                    tf.saved_model.signature_constants.
-                    DEFAULT_SERVING_SIGNATURE_DEF_KEY: signature_definition
-                })
+            Args:
+                inference_function: A function which performs
+                    an inference.
+                preprocess_function: A function from the LayerInjector class
+                    which preprocesses input.
+                postprocess_function: A function from the LayerInjector class
+                    which postprocesses output.
+                model_name: The name of the model.
+                model_version: The version number of the model.
+                checkpoint_dir: The path to the model's checkpoints directory.
+                serve_dir: The path to the model's serve directory.
+                channels: The number of channels of the input image.
+                optional_preprocess_args: Optional list of arguments for use
+                    with custom preprocess functions.
+                optional_postprocess_args: Optional list of arguments for use
+                    with custom postprocess functions.
+        """
 
-            # Saves the model
-            builder.save()
+        # Prints export status
+        print("Exporting model to ProtoBuf...")
+
+        # Exports given TensorFlow graph to ProtoBuf format
+        output_node_names, output_as_image = self.__export_graph_to_protobuf(
+            inference_function,
+            preprocess_function,
+            process_function,
+            model_name,
+            model_version,
+            checkpoint_dir,
+            channels,
+            optional_preprocess_args,
+            optional_postprocess_args)
+
+        # Prints export status
+        print("Wrapping ProtoBuf in SavedModel...")
+
+        # Wraps a SavedModel around the ProtoBuf
+        self.__wrap_savedmodel_around_protobuf(
+            output_node_names,
+            output_as_image,
+            model_name,
+            model_version,
+            serve_dir)
+
+        # Prints export status
+        print("Exported successfully!")
+        print("""Run the server with:
+              tensorflow_model_server --rest_api_port=8501 """
+              "--model_name=saved_model --model_base_path=$(path)")
+
+    def build_server_from_keras(self,
+                                preprocess_function,
+                                postprocess_function,
+                                model_name,
+                                model_version,
+                                h5_filepath,
+                                serve_dir,
+                                channels,
+                                optional_preprocess_args={},
+                                optional_postprocess_args={}):
+        """ Builds a Tendies server from a Keras model.
+
+            Args:
+                preprocess_function: A function from the LayerInjector class
+                    which preprocesses input.
+                postprocess_function: A function from the LayerInjector class
+                    which postprocesses output.
+                model_name: The name of the model.
+                model_version: The version number of the model.
+                h5_filepath: The filepath to a .h5 file containing an
+                    exported Keras model.
+                serve_dir: The path to the model's serve directory.
+                channels: The number of channels of the input image.
+                optional_preprocess_args: Optional dict of arguments for use
+                    with custom preprocess functions.
+                optional_postprocess_args: Optional dict of arguments for use
+                    with custom postprocess functions.
+        """
+
+        # Prints export status
+        print("Exporting Keras model to SavedModel...")
+
+        # Wraps a SavedModel around the given Keras model
+        self.__wrap_savedmodel_around_keras(
+            preprocess_function,
+            postprocess_function,
+            model_name,
+            model_version,
+            h5_filepath,
+            server_dir,
+            channels,
+            optional_preprocess_args,
+            optional_postprocess_args)
+
+        # Prints export status
+        print("Exported successfully!")
+        print("""Run the server with:
+              tensorflow_model_server --rest_api_port=8501 """
+              "--model_name=saved_model --model_base_path=$(path)")
 
 
 def example_usage(_):
@@ -299,31 +432,17 @@ def example_usage(_):
     # # Instantiates a CycleGAN
     # cycle_gan = model.CycleGAN(ngf=64,
     #                            norm="instance",
-    #                            image_size=FLAGS.image_size)
+    #                            image_size=64)
     #
-    # # Exports model
-    # print("Exporting model to ProtoBuf...")
-    # output_node_names, output_as_image = server_builder.export_graph(
-    #                             cycle_gan.G.sample,
-    #                             layer_injector.bitstring_to_float32_tensor,
-    #                             layer_injector.float32_tensor_to_bitstring,
-    #                             FLAGS.model_name,
-    #                             FLAGS.model_version,
-    #                             FLAGS.checkpoint_dir,
-    #                             FLAGS.protobuf_dir,
-    #                             FLAGS.image_size,
-    #                             FLAGS.channels)
-    # print("Wrapping ProtoBuf in SavedModel...")
-    # server_builder.build_saved_model_from_tf(output_node_names,
-    #                                          output_as_image,
-    #                                          FLAGS.model_name,
-    #                                          FLAGS.model_version,
-    #                                          FLAGS.protobuf_dir,
-    #                                          FLAGS.serve_dir)
-    # print("Exported successfully!")
-    # print("""Run the server with:
-    #       tensorflow_model_server --rest_api_port=8501 """
-    #       "--model_name=saved_model --model_base_path=$(path)")
+    # server_builder.build_server_from_tf(
+    #     inference_function=cycle_gan.G.sample,
+    #     preprocess_function=layer_injector.bitstring_to_float32_tensor,
+    #     postprocess_function=layer_injector.float32_tensor_to_bitstring,
+    #     model_name=FLAGS.model_name,
+    #     model_version=FLAGS.model_version,
+    #     checkpoint_dir=FLAGS.checkpoint_dir,
+    #     serve_dir=FLAGS.serve_dir,
+    #     channels=FLAGS.channels)
 
     ###################################################################
     # Faster R-CNN (Image to Object Detection API Tensors to Image in pure TF)
@@ -333,7 +452,7 @@ def example_usage(_):
     import model_builder  # nopep8
     import pipeline_pb2  # nopep8
     from google.protobuf import text_format  # nopep8
-    CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\pipeline.config"  # nopep8
+    CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\rcnn\\pipeline.config"  # nopep8
     
     # Builds object detection model from config file
     pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
@@ -353,49 +472,28 @@ def example_usage(_):
         postprocessed_tensors = detection_model.postprocess(
             output_tensors, true_image_shapes)
         return postprocessed_tensors
-    
-    # Exports model
-    print("Exporting model to ProtoBuf...")
-    output_node_names, output_as_image = server_builder.export_graph(
-                                object_detection_inference,
-                                layer_injector.bitstring_to_uint8_tensor,
-                                layer_injector.object_detection_dict_to_tensor_dict,  # nopep8
-                                FLAGS.model_name,
-                                FLAGS.model_version,
-                                FLAGS.checkpoint_dir,
-                                FLAGS.protobuf_dir,
-                                FLAGS.image_size,
-                                FLAGS.channels)
-    print("Wrapping ProtoBuf in SavedModel...")
-    server_builder.build_saved_model_from_tf(output_node_names,
-                                             output_as_image,
-                                             FLAGS.model_name,
-                                             FLAGS.model_version,
-                                             FLAGS.protobuf_dir,
-                                             FLAGS.serve_dir)
-    print("Exported successfully!")
-    print("""Run the server with:
-          tensorflow_model_server --rest_api_port=8501 """
-          "--model_name=saved_model --model_base_path=$(path)")
+
+    server_builder.build_server_from_tf(
+        inference_function=object_detection_inference,
+        preprocess_function=layer_injector.bitstring_to_uint8_tensor,
+        postprocess_function=layer_injector.object_detection_dict_to_tensor_dict,  # nopep8
+        model_name=FLAGS.model_name,
+        model_version=FLAGS.model_version,
+        checkpoint_dir=FLAGS.checkpoint_dir,
+        serve_dir=FLAGS.serve_dir,
+        channels=FLAGS.channels)
 
     ###################################################################
     # Arbitrary Keras Model (Image-to-Image in Keras)
     ###################################################################
-    # # Exports model
-    # print("Exporting Keras model to SavedModel...")
-    # server_builder.build_saved_model_from_keras(
-    #     FLAGS.h5_filepath,
-    #     layer_injector.bitstring_to_float32_tensor,
-    #     layer_injector.segmentation_map_to_bitstring_keras,
-    #     FLAGS.model_name,
-    #     FLAGS.model_version,
-    #     FLAGS.serve_dir,
-    #     FLAGS.image_size,
-    #     FLAGS.channels)
-    # print("Exported successfully!")
-    # print("""Run the server with:
-    #       tensorflow_model_server --rest_api_port=8501 """
-    #       "--model_name=saved_model --model_base_path=$(path)")
+    # server_builder.build_server_from_keras(
+    #     preprocess_function=layer_injector.bitstring_to_float32_tensor,
+    #     postprocess_function=layer_injector.segmentation_map_to_bitstring_keras,
+    #     model_name=FLAGS.model_name,
+    #     model_version=FLAGS.model_version,
+    #     h5_filepath=FLAGS.h5_filepath,
+    #     serve_dir=FLAGS.serve_dir,
+    #     channels=FLAGS.channels)
 
 
 if __name__ == "__main__":
@@ -415,28 +513,18 @@ if __name__ == "__main__":
 
     parser.add_argument("--h5_filepath",
                         type=str,
-                        default="",
+                        default=None,
                         help="Keras model filepath")
 
     parser.add_argument("--checkpoint_dir",
                         type=str,
-                        default="",
+                        default=None,
                         help="Path to checkpoints directory")
-
-    parser.add_argument("--protobuf_dir",
-                        type=str,
-                        default="protobufs",
-                        help="Path to protobufs directory")
 
     parser.add_argument("--serve_dir",
                         type=str,
                         default="serve",
                         help="Path to serve directory")
-
-    parser.add_argument("--image_size",
-                        type=int,
-                        default=512,
-                        help="Image size")
 
     parser.add_argument("--channels",
                         type=int,

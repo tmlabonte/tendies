@@ -23,7 +23,6 @@ class Client:
                  input_extension,
                  output_dir,
                  output_filename,
-                 output_extension,
                  encoding):
         """ Initializes a Client object.
 
@@ -33,7 +32,6 @@ class Client:
                 input_extension: The file extension of input files.
                 output_dir: The name of the output directory.
                 output_filename: The filename (less extension) of output files.
-                output_extension: The file extension of output files.
                 encoding: The type of string encoding to use.
         """
 
@@ -42,7 +40,6 @@ class Client:
         self.input_extension = input_extension
         self.output_dir = output_dir
         self.output_filename = output_filename
-        self.output_extension = output_extension
         self.encoding = encoding
 
     def visualize(self, input_image, response, i):
@@ -62,7 +59,7 @@ class Client:
 
         # Saves inferred image
         output_file = self.output_dir + "/images/"
-        output_file += self.output_filename + str(i) + self.output_extension
+        output_file += self.output_filename + str(i) + ".png"
         with open(output_file, "wb") as output_file:
             output_file.write(response_image)
 
@@ -114,7 +111,6 @@ def example_usage(_):
                     FLAGS.input_extension,
                     FLAGS.output_dir,
                     FLAGS.output_filename,
-                    FLAGS.output_extension,
                     FLAGS.encoding)
     # Performs inference
     client.inference()
@@ -150,11 +146,6 @@ if __name__ == "__main__":
                         type=str,
                         default="output",
                         help="Output file name")
-
-    parser.add_argument("--output_extension",
-                        type=str,
-                        default=".png",
-                        help="Output file extension")
 
     parser.add_argument("--encoding",
                         type=str,

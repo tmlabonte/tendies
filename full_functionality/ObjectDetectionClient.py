@@ -21,9 +21,8 @@ class ObjectDetectionClient(Client):
                  input_extension,
                  output_dir,
                  output_filename,
-                 output_extension,
                  encoding,
-                 image_size,
+                 channels,
                  label_path):
         """ Initializes an ObjectDetectionClient object.
 
@@ -45,10 +44,9 @@ class ObjectDetectionClient(Client):
                          input_extension,
                          output_dir,
                          output_filename,
-                         output_extension,
                          encoding)
         # Adds child class specific member variables
-        self.image_size = image_size
+        self.channels = channels
         self.label_path = label_path
 
     def get_category_index(self):
@@ -79,11 +77,8 @@ class ObjectDetectionClient(Client):
         input_bytes = tf.reshape(input_bytes, [])
 
         # Transforms bitstring to uint8 tensor
-        input_tensor = tf.image.decode_jpeg(input_bytes, channels=3)
-
-        # Ensures tensor has correct shape
-        input_tensor = tf.reshape(input_tensor,
-                                  [self.image_size, self.image_size, 3])
+        input_tensor = tf.image.decode_jpeg(input_bytes,
+                                            channels=self.channels)
 
         return input_tensor
 
@@ -118,7 +113,7 @@ class ObjectDetectionClient(Client):
 
         # Saves image
         output_file = self.output_dir + "/images/"
-        output_file += self.output_filename + str(i) + self.output_extension
+        output_file += self.output_filename + str(i) + ".png"
         visualization_utils.save_image_array_as_png(image, output_file)
 
 
@@ -129,9 +124,8 @@ def example_usage(_):
                                                     FLAGS.input_extension,
                                                     FLAGS.output_dir,
                                                     FLAGS.output_filename,
-                                                    FLAGS.output_extension,
                                                     FLAGS.encoding,
-                                                    FLAGS.image_size,
+                                                    FLAGS.channels,
                                                     FLAGS.label_path)
     # Performs inference
     object_detection_client.inference()
@@ -168,24 +162,19 @@ if __name__ == "__main__":
                         default="output",
                         help="Output file name")
 
-    parser.add_argument("--output_extension",
-                        type=str,
-                        default=".png",
-                        help="Output file extension")
-
     parser.add_argument("--encoding",
                         type=str,
                         default="utf-8",
                         help="Encoding type")
 
-    parser.add_argument("--image_size",
+    parser.add_argument("--channels",
                         type=int,
-                        default=512,
-                        help="Image size")
+                        default=3,
+                        help="Image channels")
 
     parser.add_argument("--label_path",
                         type=str,
-                        default="C:\\Users\\Tyler Labonte\\Desktop\\sat_net\\label_data\\astronet_label_map_2.pbtxt",
+                        default="C:\\Users\\Tyler Labonte\\Desktop\\rcnn\\label_data\\astronet_label_map_2.pbtxt",
                         help="Label map path")
 
     # Parses known arguments
