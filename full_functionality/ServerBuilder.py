@@ -1,10 +1,10 @@
 import tensorflow as tf
 from tensorflow.saved_model.builder import SavedModelBuilder
-from tensorflow.saved_model.signature_constants import PREDICT_METHOD_NAME
-from tensorflow.saved_model.signature_constants import DEFAULT_SERVING_SIGNATURE_DEF_KEY  # nopep8
-from tensorflow.saved_model.signature_def_utils import build_signature_def
+from tensorflow.saved_model.signature_def_utils import predict_signature_def
 from tensorflow.saved_model.tag_constants import SERVING
 from tensorflow.saved_model.utils import build_tensor_info
+from tensorflow.saved_model.signature_constants \
+    import DEFAULT_SERVING_SIGNATURE_DEF_KEY
 
 import keras.backend.tensorflow_backend as K
 from keras.engine.input_layer import Input
@@ -57,12 +57,9 @@ class ServerBuilder:
             sess.run(tf.global_variables_initializer())
 
             # Creates signature for prediction
-            # TODO: Implement classification signature - see the
-            # Object Detection API's exporter.py for example
-            signature_definition = build_signature_def(
+            signature_definition = predict_signature_def(
                 input_tensor_info_dict,
-                output_tensor_info_dict,
-                method_name=PREDICT_METHOD_NAME)
+                output_tensor_info_dict)
 
             # Adds meta-information
             builder.add_meta_graph_and_variables(
@@ -214,7 +211,7 @@ class ServerBuilder:
             else:
                 input_tensors.append(tensor)
 
-        # Builds prototype of input
+        # Builds input prototype
         input_bytes = build_tensor_info(input_tensors[0])
         input_tensor_info = {"input_bytes": input_bytes}
 
@@ -341,7 +338,7 @@ class ServerBuilder:
         output_node_names, output_as_image = self.__export_graph_to_protobuf(
             inference_function,
             preprocess_function,
-            process_function,
+            postprocess_function,
             model_name,
             model_version,
             checkpoint_dir,

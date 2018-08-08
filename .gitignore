@@ -1,4 +1,8 @@
-/minimum_working_example/.ipynb_checkpoints
 /*/serve
-/*/input
+/*/input*
+/*/data
+/*/mnist
+/*/__pycache__
+/*/mnist_seg.h5
+/minimum_working_example/.ipynb_checkpoints
 /minimum_working_example/pipeline_diagram.pptx
