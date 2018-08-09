@@ -43,12 +43,17 @@ class LayerInjector:
         """
 
         input_bytes = tf.reshape(input_bytes, [])
+        input_bytes = tf.cast(input_bytes, tf.string)
 
         # Transforms bitstring to uint8 tensor
         input_tensor = tf.image.decode_png(input_bytes, channels=channels)
 
         # Converts to float32 tensor
         input_tensor = tf.image.convert_image_dtype(input_tensor, tf.float32)
+
+        #input_tensor = tf.reshape(input_tensor, [64, 64, 3])
+
+        input_tensor = tf.Print(input_tensor, [input_tensor])
 
         # Expands the single tensor into a batch of 1
         input_tensor = tf.expand_dims(input_tensor, 0)
@@ -70,6 +75,7 @@ class LayerInjector:
         """
 
         input_bytes = tf.reshape(input_bytes, [])
+        input_bytes = tf.cast(input_bytes, tf.string)
 
         # Transforms bitstring to uint8 tensor
         input_tensor = tf.image.decode_png(input_bytes, channels=channels)

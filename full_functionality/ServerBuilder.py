@@ -117,6 +117,8 @@ class ServerBuilder:
         input_bytes = tf.placeholder(tf.string,
                                      shape=[],
                                      name="input_bytes")
+        
+        print(input_bytes)
 
         # Sets graph
         graph = input_bytes.graph
@@ -125,6 +127,8 @@ class ServerBuilder:
         input_tensor = preprocess_function(input_bytes,
                                            channels,
                                            optional_preprocess_args)
+
+        print(input_tensor)
 
         # Gets output tensor(s)
         inference_output = inference_function(input_tensor)
@@ -296,8 +300,8 @@ class ServerBuilder:
         model = Model(input_bytes, output_bytes)
 
         # Builds input/output tensor protos
-        input_tensor_info = {"input_bytes": model.input}
-        output_tensor_info = {"output_bytes": model.output}
+        input_tensor_info = {"input_bytes": build_tensor_info(model.input)}
+        output_tensor_info = {"output_bytes": build_tensor_info(model.output)}
 
         # Creates and saves SavedModel
         self.__create_savedmodel(save_path,
@@ -406,7 +410,7 @@ class ServerBuilder:
             model_name,
             model_version,
             h5_filepath,
-            server_dir,
+            serve_dir,
             channels,
             optional_preprocess_args,
             optional_postprocess_args)
@@ -434,7 +438,7 @@ def example_usage(_):
     # cycle_gan = model.CycleGAN(ngf=64,
     #                            norm="instance",
     #                            image_size=64)
-    #
+    
     # # Builds the server
     # server_builder.build_server_from_tf(
     #     inference_function=cycle_gan.G.sample,
@@ -455,15 +459,15 @@ def example_usage(_):
     # import pipeline_pb2  # nopep8
     # from google.protobuf import text_format  # nopep8
     # CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\rcnn\\pipeline.config"  # nopep8
-    #
+    
     # # Builds object detection model from config file
     # pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
     # with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
     #     text_format.Merge(config.read(), pipeline_config)
-    #
+    
     # detection_model = model_builder.build(pipeline_config.model,
     #                                       is_training=False)
-    #
+    
     # # Creates inference function, encapsulating object detection requirements
     # def object_detection_inference(input_tensors):
     #     inputs = tf.to_float(input_tensors)
@@ -489,7 +493,7 @@ def example_usage(_):
     ###################################################################
     # Arbitrary Keras Model (Image-to-Image Segmentation in Keras)
     ###################################################################
-    # # Builds the server
+    # Builds the server
     # server_builder.build_server_from_keras(
     #     preprocess_function=layer_injector.bitstring_to_float32_tensor,
     #     postprocess_function=layer_injector.segmentation_map_to_bitstring_keras,
