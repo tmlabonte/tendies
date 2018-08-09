@@ -38,7 +38,8 @@ class LayerInjector:
                 channels: The number of channels in the input image.
 
             Returns:
-                A batched float32 tensor representative of the input image.
+                input_tensor: A batched float32 tensor representative of
+                    the input image.
         """
 
         input_bytes = tf.reshape(input_bytes, [])
@@ -64,7 +65,8 @@ class LayerInjector:
                 channels: The number of channels of the input image.
 
             Returns:
-                A batched uint8 tensor representative of the input image.
+                input_tensor: A batched uint8 tensor representative of
+                    the input image.
         """
 
         input_bytes = tf.reshape(input_bytes, [])

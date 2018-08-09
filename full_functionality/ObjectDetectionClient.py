@@ -64,24 +64,6 @@ class ObjectDetectionClient(Client):
         category_index = label_map_util.create_category_index(categories)
         return category_index
 
-    def bitstring_to_uint8_tensor(self, input_bytes):
-        """ Transforms image bitstring to uint8 tensor.
-
-            Args:
-                input_bytes: A bitstring representative of an input image.
-
-            Returns:
-                input_tensor: A uint8 tensor representative of the input image.
-        """
-
-        input_bytes = tf.reshape(input_bytes, [])
-
-        # Transforms bitstring to uint8 tensor
-        input_tensor = tf.image.decode_jpeg(input_bytes,
-                                            channels=self.channels)
-
-        return input_tensor
-
     def visualize(self, input_image, response, i):
         """ Decodes JSON data and converts it to a bounding box overlay
             on the input image, then saves the image to a directory.
@@ -96,7 +78,12 @@ class ObjectDetectionClient(Client):
         detection_boxes = response["detection_boxes"]
         detection_classes = response["detection_classes"]
         detection_scores = response["detection_scores"]
-        image = self.bitstring_to_uint8_tensor(input_image)
+
+        # Converts image bitstring to uint8 tensor
+        input_bytes = tf.reshape(input_image, [])
+        image = tf.image.decode_jpeg(input_bytes, channels=self.channels)
+
+        # Gets value of image tensor
         with tf.Session() as sess:
             image = image.eval()
 
@@ -107,7 +94,6 @@ class ObjectDetectionClient(Client):
             np.asarray(detection_classes, dtype=np.uint8),
             scores=np.asarray(detection_scores, dtype=np.float32),
             category_index=self.get_category_index(),
-            instance_masks=None,
             use_normalized_coordinates=True,
             line_thickness=2)
 

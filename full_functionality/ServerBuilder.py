@@ -1,7 +1,8 @@
 import tensorflow as tf
 from tensorflow.saved_model.builder import SavedModelBuilder
-from tensorflow.saved_model.signature_def_utils import predict_signature_def
+from tensorflow.saved_model.signature_def_utils import build_signature_def
 from tensorflow.saved_model.tag_constants import SERVING
+from tensorflow.saved_model.signature_constants import PREDICT_METHOD_NAME
 from tensorflow.saved_model.utils import build_tensor_info
 from tensorflow.saved_model.signature_constants \
     import DEFAULT_SERVING_SIGNATURE_DEF_KEY
@@ -20,8 +21,13 @@ import os
 class ServerBuilder:
     """ Exports TensorFlow model for serving with RESTful API.
 
+        For TensorFlow-only models, please use the build_server_for_tf
+        function. For Keras models, use build_server_for_keras. Please view
+        the provided example cases in example_usage below.
+
+        ServerBuilder methodology:
         1. Injects selected input and output layers to the model.
-        2. Converts model checkpoint to ProtoBuf.
+        2. Converts model checkpoint to ProtoBuf (TensorFlow version only).
         3. Wraps in a SavedModel with a PREDICT signature definition.
     """
 
@@ -52,14 +58,15 @@ class ServerBuilder:
         # Instantiates a SavedModelBuilder
         builder = SavedModelBuilder(save_path)
 
+        # Creates signature for prediction
+        signature_definition = build_signature_def(
+            input_tensor_info_dict,
+            output_tensor_info_dict,
+            PREDICT_METHOD_NAME)
+
         with tf.Session(graph=graph) as sess:
             # Initializes model and variables
             sess.run(tf.global_variables_initializer())
-
-            # Creates signature for prediction
-            signature_definition = predict_signature_def(
-                input_tensor_info_dict,
-                output_tensor_info_dict)
 
             # Adds meta-information
             builder.add_meta_graph_and_variables(
@@ -85,8 +92,8 @@ class ServerBuilder:
             exports model graph to ProtoBuf.
 
             Args:
-                inference_function: A function which performs
-                    an inference.
+                inference_function: A function from a TensorFlow model
+                    which performs an inference.
                 preprocess_function: A function from the LayerInjector class
                     which preprocesses input.
                 postprocess_function: A function from the LayerInjector class
@@ -106,7 +113,6 @@ class ServerBuilder:
                     encoded image.
         """
 
-        # Creates placeholder for input bitstring
         # Injects a bitstring layer into beginning of model
         input_bytes = tf.placeholder(tf.string,
                                      shape=[],
@@ -128,9 +134,8 @@ class ServerBuilder:
             inference_output,
             optional_postprocess_args)
 
-        with graph.as_default():
-            # Instantiates a Saver
-            saver = tf.train.Saver()
+        # Instantiates a Saver
+        saver = tf.train.Saver()
 
         with tf.Session(graph=graph) as sess:
             # Initializes model and variables
@@ -203,8 +208,8 @@ class ServerBuilder:
         input_tensors = []
         output_tensors = []
         for tensor in io_tensors:
-            # TODO: shouldn't have to truncate, why does import graph def
-            # return tensors whose ops end in _1? Must be duplicates
+            # Truncate tensor names because they are duplicates
+            # with names that end in "_1"
             node_name = tensor.op.name[:-2]
             if node_name in output_node_names:
                 output_tensors.append(tensor)
@@ -275,8 +280,7 @@ class ServerBuilder:
         input_bytes = Input(shape=[], dtype=tf.string)
 
         # Preprocesses image bitstring
-        arg_dict = {"channels": channels}
-        pre_map = dict(arg_dict, **optional_preprocess_args)
+        pre_map = {"channels": channels, **optional_preprocess_args}
         input_tensor = Lambda(preprocess_function,
                               arguments=pre_map)(input_bytes)
 
@@ -314,8 +318,8 @@ class ServerBuilder:
         """ Builds a Tendies server from a TensorFlow model.
 
             Args:
-                inference_function: A function which performs
-                    an inference.
+                inference_function: A function from a TensorFlow model
+                    which performs an inference.
                 preprocess_function: A function from the LayerInjector class
                     which preprocesses input.
                 postprocess_function: A function from the LayerInjector class
@@ -431,6 +435,7 @@ def example_usage(_):
     #                            norm="instance",
     #                            image_size=64)
     #
+    # # Builds the server
     # server_builder.build_server_from_tf(
     #     inference_function=cycle_gan.G.sample,
     #     preprocess_function=layer_injector.bitstring_to_float32_tensor,
@@ -444,45 +449,47 @@ def example_usage(_):
     ###################################################################
     # Faster R-CNN (Image to Object Detection API Tensors to Image in pure TF)
     ###################################################################
-    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")  # nopep8
-    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")  # nopep8
-    import model_builder  # nopep8
-    import pipeline_pb2  # nopep8
-    from google.protobuf import text_format  # nopep8
-    CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\rcnn\\pipeline.config"  # nopep8
-    
-    # Builds object detection model from config file
-    pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
-    with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
-        text_format.Merge(config.read(), pipeline_config)
-    
-    detection_model = model_builder.build(pipeline_config.model,
-                                          is_training=False)
-    
-    # Creates inference function, encapsulating object detection requirements
-    def object_detection_inference(input_tensors):
-        inputs = tf.to_float(input_tensors)
-        preprocessed_inputs, true_image_shapes = detection_model.preprocess(
-            inputs)
-        output_tensors = detection_model.predict(
-            preprocessed_inputs, true_image_shapes)
-        postprocessed_tensors = detection_model.postprocess(
-            output_tensors, true_image_shapes)
-        return postprocessed_tensors
+    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")  # nopep8
+    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")  # nopep8
+    # import model_builder  # nopep8
+    # import pipeline_pb2  # nopep8
+    # from google.protobuf import text_format  # nopep8
+    # CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\rcnn\\pipeline.config"  # nopep8
+    #
+    # # Builds object detection model from config file
+    # pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
+    # with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
+    #     text_format.Merge(config.read(), pipeline_config)
+    #
+    # detection_model = model_builder.build(pipeline_config.model,
+    #                                       is_training=False)
+    #
+    # # Creates inference function, encapsulating object detection requirements
+    # def object_detection_inference(input_tensors):
+    #     inputs = tf.to_float(input_tensors)
+    #     preprocessed_inputs, true_image_shapes = detection_model.preprocess(
+    #         inputs)
+    #     output_tensors = detection_model.predict(
+    #         preprocessed_inputs, true_image_shapes)
+    #     postprocessed_tensors = detection_model.postprocess(
+    #         output_tensors, true_image_shapes)
+    #     return postprocessed_tensors
 
-    server_builder.build_server_from_tf(
-        inference_function=object_detection_inference,
-        preprocess_function=layer_injector.bitstring_to_uint8_tensor,
-        postprocess_function=layer_injector.object_detection_dict_to_tensor_dict,  # nopep8
-        model_name=FLAGS.model_name,
-        model_version=FLAGS.model_version,
-        checkpoint_dir=FLAGS.checkpoint_dir,
-        serve_dir=FLAGS.serve_dir,
-        channels=FLAGS.channels)
+    # # Builds the server
+    # server_builder.build_server_from_tf(
+    #     inference_function=object_detection_inference,
+    #     preprocess_function=layer_injector.bitstring_to_uint8_tensor,
+    #     postprocess_function=layer_injector.object_detection_dict_to_tensor_dict,  # nopep8
+    #     model_name=FLAGS.model_name,
+    #     model_version=FLAGS.model_version,
+    #     checkpoint_dir=FLAGS.checkpoint_dir,
+    #     serve_dir=FLAGS.serve_dir,
+    #     channels=FLAGS.channels)
 
     ###################################################################
-    # Arbitrary Keras Model (Image-to-Image in Keras)
+    # Arbitrary Keras Model (Image-to-Image Segmentation in Keras)
     ###################################################################
+    # # Builds the server
     # server_builder.build_server_from_keras(
     #     preprocess_function=layer_injector.bitstring_to_float32_tensor,
     #     postprocess_function=layer_injector.segmentation_map_to_bitstring_keras,
