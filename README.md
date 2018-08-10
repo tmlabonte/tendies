@@ -16,7 +16,7 @@ Tendies solves this problem by acting as a decoupling between these two domains.
 2. Tendies decouples the IoT client and the GPU backend, so inference can be run on a powerful machine, then transmitted to the device.
 3. Tendies enforces input/output standardization through a RESTful API, encapsulating the model server into an easily-integrable black box architecture.
 
-In a sentence, Tendies allows _any_ deep learning model to be embedded in _any_ production system.
+In a sentence, Tendies allows _any_ image-based deep learning model to be embedded in _any_ production system.
 
 ## Basic usage steps for a custom localhost server:
 1. Clone the repository to your machine.
