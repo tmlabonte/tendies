@@ -1,25 +1,23 @@
-import tensorflow as tf
-from tensorflow.saved_model.builder import SavedModelBuilder
-from tensorflow.saved_model.signature_def_utils import build_signature_def
-from tensorflow.saved_model.tag_constants import SERVING
-from tensorflow.saved_model.signature_constants import PREDICT_METHOD_NAME
-from tensorflow.saved_model.utils import build_tensor_info
-from tensorflow.saved_model.signature_constants \
-    import DEFAULT_SERVING_SIGNATURE_DEF_KEY
+import argparse
+import os
+import sys
 
 import keras.backend.tensorflow_backend as K
-from keras.engine.input_layer import Input
-from keras.models import Model, load_model
-from keras.layers import Lambda
+import tensorflow as tf
+
+from tensorflow.saved_model.builder import SavedModelBuilder
+from tensorflow.saved_model.signature_def_utils import build_signature_def
+from tensorflow.saved_model.signature_constants \
+    import DEFAULT_SERVING_SIGNATURE_DEF_KEY
+from tensorflow.saved_model.signature_constants import PREDICT_METHOD_NAME
+from tensorflow.saved_model.tag_constants import SERVING
+from tensorflow.saved_model.utils import build_tensor_info
 
 from LayerInjector import LayerInjector
-import argparse
-import sys
-import os
 
 
 class ServerBuilder:
-    """ Exports TensorFlow model for serving with RESTful API.
+    """ Exports TensorFlow image-based model for serving with RESTful API.
 
         For TensorFlow-only models, please use the build_server_for_tf
         function. For Keras models, use build_server_for_keras. Please view
@@ -34,11 +32,11 @@ class ServerBuilder:
     def __init__(self):
         pass
 
-    def __create_savedmodel(self,
-                            save_path,
-                            input_tensor_info_dict,
-                            output_tensor_info_dict,
-                            graph=None):
+    def _create_savedmodel(self,
+                           save_path,
+                           input_tensor_info_dict,
+                           output_tensor_info_dict,
+                           graph=None):
         """ Creates a SavedModel by building signature via tensor info,
             then writes to disk.
 
@@ -78,16 +76,16 @@ class ServerBuilder:
         # Writes the SavedModel to disk
         builder.save()
 
-    def __export_graph_to_protobuf(self,
-                                   inference_function,
-                                   preprocess_function,
-                                   postprocess_function,
-                                   model_name,
-                                   model_version,
-                                   checkpoint_dir,
-                                   channels,
-                                   optional_preprocess_args,
-                                   optional_postprocess_args):
+    def _export_graph_to_protobuf(self,
+                                  inference_function,
+                                  preprocess_function,
+                                  postprocess_function,
+                                  model_name,
+                                  model_version,
+                                  checkpoint_dir,
+                                  channels,
+                                  optional_preprocess_args,
+                                  optional_postprocess_args):
         """ Injects input and output layers, then
             exports model graph to ProtoBuf.
 
@@ -117,8 +115,6 @@ class ServerBuilder:
         input_bytes = tf.placeholder(tf.string,
                                      shape=[],
                                      name="input_bytes")
-        
-        print(input_bytes)
 
         # Sets graph
         graph = input_bytes.graph
@@ -127,8 +123,6 @@ class ServerBuilder:
         input_tensor = preprocess_function(input_bytes,
                                            channels,
                                            optional_preprocess_args)
-
-        print(input_tensor)
 
         # Gets output tensor(s)
         inference_output = inference_function(input_tensor)
@@ -162,24 +156,24 @@ class ServerBuilder:
         # Returns output node names and image boolean
         return output_node_names, output_as_image
 
-    def __wrap_savedmodel_around_protobuf(self,
-                                          output_node_names,
-                                          output_as_image,
-                                          model_name,
-                                          model_version,
-                                          serve_dir):
+    def _wrap_savedmodel_around_protobuf(self,
+                                         output_node_names,
+                                         output_as_image,
+                                         model_name,
+                                         model_version,
+                                         serve_dir):
         """ Wraps a SavedModel around a ProtoBuf file with a PREDICT
             signature definition for using the TensorFlow-Serving RESTful API.
 
             Designed to be called immediately after
-            ServerBuilder.__export_graph_to_protobuf(), with that function's
+            ServerBuilder._export_graph_to_protobuf(), with that function's
             outputs as inputs.
 
             Args:
                 output_node_names: A list of the output nodes in the graph.
-                    Returned by export_graph().
-                output_as_image: A boolean representing whether the output of
-                    the model is an image. Returned by export_graph().
+                    Returned by _export_graph_to_protobuf().
+                output_as_image: A boolean telling whether the output of the
+                    model is an image. Returned by _export_graph_to_protobuf().
                 model_name: The name of the model.
                 model_version: The version number of the model.
                 serve_dir: The path to the model's serve directory.
@@ -209,24 +203,17 @@ class ServerBuilder:
                                          return_elements=tensor_names)
 
         # Separates input and output tensors
-        input_tensors = []
-        output_tensors = []
-        for tensor in io_tensors:
-            # Truncate tensor names because they are duplicates
-            # with names that end in "_1"
-            node_name = tensor.op.name[:-2]
-            if node_name in output_node_names:
-                output_tensors.append(tensor)
-            else:
-                input_tensors.append(tensor)
+        input_bytes = io_tensors[0]
+        output_tensors = io_tensors[1:]
 
         # Builds input prototype
-        input_bytes = build_tensor_info(input_tensors[0])
-        input_tensor_info = {"input_bytes": input_bytes}
+        input_bytes_info = build_tensor_info(input_bytes)
+        input_tensor_info = {"input_bytes": input_bytes_info}
 
         # Builds dictionary of output prototypes
         # Note that output as image MUST have "_bytes" suffix
         if output_as_image:
+            # TODO: Implement multi-image outputs
             tensor_info = build_tensor_info(output_tensors[0])
             output_tensor_info = {"output_bytes": tensor_info}
         else:
@@ -236,21 +223,21 @@ class ServerBuilder:
                 output_tensor_info[name] = tensor_info
 
         # Creates and saves SavedModel
-        self.__create_savedmodel(save_path,
-                                 input_tensor_info,
-                                 output_tensor_info,
-                                 graph=output_tensors[0].graph)
+        self._create_savedmodel(save_path,
+                                input_tensor_info,
+                                output_tensor_info,
+                                graph=output_tensors[0].graph)
 
-    def __wrap_savedmodel_around_keras(self,
-                                       preprocess_function,
-                                       postprocess_function,
-                                       model_name,
-                                       model_version,
-                                       h5_filepath,
-                                       serve_dir,
-                                       channels,
-                                       optional_preprocess_args,
-                                       optional_postprocess_args):
+    def _wrap_savedmodel_around_keras(self,
+                                      preprocess_function,
+                                      postprocess_function,
+                                      model_name,
+                                      model_version,
+                                      h5_filepath,
+                                      serve_dir,
+                                      channels,
+                                      optional_preprocess_args,
+                                      optional_postprocess_args):
         """ Injects input and output layers with Keras Lambdas, then
             exports to SavedModel.
 
@@ -304,9 +291,9 @@ class ServerBuilder:
         output_tensor_info = {"output_bytes": build_tensor_info(model.output)}
 
         # Creates and saves SavedModel
-        self.__create_savedmodel(save_path,
-                                 input_tensor_info,
-                                 output_tensor_info)
+        self._create_savedmodel(save_path,
+                                input_tensor_info,
+                                output_tensor_info)
 
     def build_server_from_tf(self,
                              inference_function,
@@ -343,7 +330,7 @@ class ServerBuilder:
         print("Exporting model to ProtoBuf...")
 
         # Exports given TensorFlow graph to ProtoBuf format
-        output_node_names, output_as_image = self.__export_graph_to_protobuf(
+        output_node_names, output_as_image = self._export_graph_to_protobuf(
             inference_function,
             preprocess_function,
             postprocess_function,
@@ -358,7 +345,7 @@ class ServerBuilder:
         print("Wrapping ProtoBuf in SavedModel...")
 
         # Wraps a SavedModel around the ProtoBuf
-        self.__wrap_savedmodel_around_protobuf(
+        self._wrap_savedmodel_around_protobuf(
             output_node_names,
             output_as_image,
             model_name,
@@ -404,7 +391,7 @@ class ServerBuilder:
         print("Exporting Keras model to SavedModel...")
 
         # Wraps a SavedModel around the given Keras model
-        self.__wrap_savedmodel_around_keras(
+        self._wrap_savedmodel_around_keras(
             preprocess_function,
             postprocess_function,
             model_name,
@@ -438,7 +425,7 @@ def example_usage(_):
     # cycle_gan = model.CycleGAN(ngf=64,
     #                            norm="instance",
     #                            image_size=64)
-    
+
     # # Builds the server
     # server_builder.build_server_from_tf(
     #     inference_function=cycle_gan.G.sample,
@@ -453,42 +440,42 @@ def example_usage(_):
     ###################################################################
     # Faster R-CNN (Image to Object Detection API Tensors to Image in pure TF)
     ###################################################################
-    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")  # nopep8
-    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")  # nopep8
-    # import model_builder  # nopep8
-    # import pipeline_pb2  # nopep8
-    # from google.protobuf import text_format  # nopep8
-    # CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\rcnn\\pipeline.config"  # nopep8
-    
-    # # Builds object detection model from config file
-    # pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
-    # with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
-    #     text_format.Merge(config.read(), pipeline_config)
-    
-    # detection_model = model_builder.build(pipeline_config.model,
-    #                                       is_training=False)
-    
-    # # Creates inference function, encapsulating object detection requirements
-    # def object_detection_inference(input_tensors):
-    #     inputs = tf.to_float(input_tensors)
-    #     preprocessed_inputs, true_image_shapes = detection_model.preprocess(
-    #         inputs)
-    #     output_tensors = detection_model.predict(
-    #         preprocessed_inputs, true_image_shapes)
-    #     postprocessed_tensors = detection_model.postprocess(
-    #         output_tensors, true_image_shapes)
-    #     return postprocessed_tensors
+    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")  # nopep8
+    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")  # nopep8
+    import model_builder  # nopep8
+    import pipeline_pb2  # nopep8
+    from google.protobuf import text_format  # nopep8
+    CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\rcnn\\pipeline.config"  # nopep8
 
-    # # Builds the server
-    # server_builder.build_server_from_tf(
-    #     inference_function=object_detection_inference,
-    #     preprocess_function=layer_injector.bitstring_to_uint8_tensor,
-    #     postprocess_function=layer_injector.object_detection_dict_to_tensor_dict,  # nopep8
-    #     model_name=FLAGS.model_name,
-    #     model_version=FLAGS.model_version,
-    #     checkpoint_dir=FLAGS.checkpoint_dir,
-    #     serve_dir=FLAGS.serve_dir,
-    #     channels=FLAGS.channels)
+    # Builds object detection model from config file
+    pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
+    with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
+        text_format.Merge(config.read(), pipeline_config)
+
+    detection_model = model_builder.build(pipeline_config.model,
+                                          is_training=False)
+
+    # Creates inference function, encapsulating object detection requirements
+    def object_detection_inference(input_tensors):
+        inputs = tf.to_float(input_tensors)
+        preprocessed_inputs, true_image_shapes = detection_model.preprocess(
+            inputs)
+        output_tensors = detection_model.predict(
+            preprocessed_inputs, true_image_shapes)
+        postprocessed_tensors = detection_model.postprocess(
+            output_tensors, true_image_shapes)
+        return postprocessed_tensors
+
+    # Builds the server
+    server_builder.build_server_from_tf(
+        inference_function=object_detection_inference,
+        preprocess_function=layer_injector.bitstring_to_uint8_tensor,
+        postprocess_function=layer_injector.object_detection_dict_to_tensor_dict,  # nopep8
+        model_name=FLAGS.model_name,
+        model_version=FLAGS.model_version,
+        checkpoint_dir=FLAGS.checkpoint_dir,
+        serve_dir=FLAGS.serve_dir,
+        channels=FLAGS.channels)
 
     ###################################################################
     # Arbitrary Keras Model (Image-to-Image Segmentation in Keras)

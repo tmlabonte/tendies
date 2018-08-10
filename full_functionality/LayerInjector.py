@@ -1,5 +1,5 @@
-import tensorflow as tf
 import math
+import tensorflow as tf
 
 
 class LayerInjector:
@@ -50,8 +50,6 @@ class LayerInjector:
 
         # Converts to float32 tensor
         input_tensor = tf.image.convert_image_dtype(input_tensor, tf.float32)
-
-        #input_tensor = tf.reshape(input_tensor, [64, 64, 3])
 
         input_tensor = tf.Print(input_tensor, [input_tensor])
 
@@ -214,7 +212,10 @@ class LayerInjector:
         #                            [int(math.sqrt(x)), int(math.sqrt(x)), n])
 
         # Sets classes by choosing the highest, reducing channels to 1
+        # Removes the channel dimension
         output_tensor = tf.argmax(output_tensor, axis=2)
+
+        # Adds dimension to hold now non-existent channels for encode_png
         output_tensor = tf.expand_dims(output_tensor, 2)
 
         # Converts to uint8 tensor

@@ -6,9 +6,11 @@ import os
 import sys
 import requests
 
+from Client import Client
 
-class Client:
-    """ Client for a TensorFlow ModelServer.
+
+class ImageToImageClient(Client):
+    """ Client for an image-to-image TensorFlow ModelServer.
 
         Performs inference on a directory of images by sending them
         to a TensorFlow-Serving ModelServer, using its RESTful API.
@@ -32,70 +34,44 @@ class Client:
                 encoding: The type of string encoding to use.
         """
 
-        self.url = url
-        self.input_dir = input_dir
-        self.input_extension = input_extension
-        self.output_dir = output_dir
-        self.output_filename = output_filename
-        self.encoding = encoding
+        # Initializes a Client object
+        super().__init__(url,
+                         input_dir,
+                         input_extension,
+                         output_dir,
+                         output_filename,
+                         encoding)
 
     def visualize(self, input_image, response, i):
-        """ Abstract method for response visualization.
+        """ Decodes Base64 response data and saves images to a directory.
+
+            Args:
+                input_image: The string representing the input image. Not used
+                    in this method, but required for child classes to overload.
+                response: The list of response dictionaries from the server.
+                i: An integer used in iteration over input images.
         """
 
-        raise NotImplementedError
+        # Interprets bitstring output
+        response_string = response["b64"]
+        encoded_response_string = response_string.encode(self.encoding)
+        response_image = base64.b64decode(encoded_response_string)
 
-    def inference(self):
-        """ Performs inference on a directory of images by sending them
-            to the TensorFlow-Serving ModelServer, using its RESTful API.
-
-            Outputs JSON data into txt files and inferred images as png files.
-        """
-
-        # Creates output directories
-        if not os.path.exists(self.output_dir):
-            os.mkdir(self.output_dir)
-        if not os.path.exists(self.output_dir + "/text"):
-            os.mkdir(self.output_dir + "/text")
-        if not os.path.exists(self.output_dir + "/images"):
-            os.mkdir(self.output_dir + "/images")
-
-        # Sends images from input directory
-        input_glob = glob(self.input_dir + "/*" + self.input_extension)
-        for i, img in enumerate(input_glob):
-            # Encodes image in b64
-            input_image = open(img, "rb").read()
-            input64 = base64.b64encode(input_image)
-            input_string = input64.decode(self.encoding)
-
-            # Wraps bitstring in JSON and POSTs, then waits for response
-            instance = [{"b64": input_string}]
-            data = json.dumps({"instances": instance})
-            print("POSTing image " + str(i) + ". Awaiting response...")
-            json_response = requests.post(self.url, data=data)
-            print("Reponse received.")
-
-            # Write output to a .txt file
-            output_file = self.output_dir + "/text/output" + str(i) + ".txt"
-            with open(output_file, "w") as out:
-                out.write(json_response.text)
-
-            # Extracts text from JSON
-            response = json.loads(json_response.text)
-            response = response["predictions"][0]
-
-            # Visualizes inferred image
-            self.visualize(input_image, response, i)
+        # Saves inferred image
+        output_file = self.output_dir + "/images/"
+        output_file += self.output_filename + str(i) + ".png"
+        with open(output_file, "wb") as output_file:
+            output_file.write(response_image)
 
 
 def example_usage(_):
     # Instantiates a Client
-    client = Client(FLAGS.url,
-                    FLAGS.input_dir,
-                    FLAGS.input_extension,
-                    FLAGS.output_dir,
-                    FLAGS.output_filename,
-                    FLAGS.encoding)
+    client = ImageToImageClient(FLAGS.url,
+                                FLAGS.input_dir,
+                                FLAGS.input_extension,
+                                FLAGS.output_dir,
+                                FLAGS.output_filename,
+                                FLAGS.encoding)
     # Performs inference
     client.inference()
 

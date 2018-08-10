@@ -1,8 +1,9 @@
-from Client import Client
-import tensorflow as tf
-import numpy as np
 import argparse
 import sys
+import tensorflow as tf
+import numpy as np
+from Client import Client
+
 sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\utils")  # nopep8
 import visualization_utils  # nopep8
 import label_map_util  # nopep8
