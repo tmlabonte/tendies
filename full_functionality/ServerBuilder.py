@@ -440,42 +440,42 @@ def example_usage(_):
     ###################################################################
     # Faster R-CNN (Image to Object Detection API Tensors to Image in pure TF)
     ###################################################################
-    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")  # nopep8
-    sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")  # nopep8
-    import model_builder  # nopep8
-    import pipeline_pb2  # nopep8
-    from google.protobuf import text_format  # nopep8
-    CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\rcnn\\pipeline.config"  # nopep8
+    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\builders")  # nopep8
+    # sys.path.insert(0, "C:\\Users\\Tyler Labonte\\Desktop\\models\\research\\object_detection\\protos")  # nopep8
+    # import model_builder  # nopep8
+    # import pipeline_pb2  # nopep8
+    # from google.protobuf import text_format  # nopep8
+    # CONFIG_FILE_PATH = "C:\\Users\\Tyler Labonte\\Desktop\\rcnn\\pipeline.config"  # nopep8
 
-    # Builds object detection model from config file
-    pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
-    with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
-        text_format.Merge(config.read(), pipeline_config)
+    # # Builds object detection model from config file
+    # pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
+    # with tf.gfile.GFile(CONFIG_FILE_PATH, 'r') as config:
+    #     text_format.Merge(config.read(), pipeline_config)
 
-    detection_model = model_builder.build(pipeline_config.model,
-                                          is_training=False)
+    # detection_model = model_builder.build(pipeline_config.model,
+    #                                       is_training=False)
 
-    # Creates inference function, encapsulating object detection requirements
-    def object_detection_inference(input_tensors):
-        inputs = tf.to_float(input_tensors)
-        preprocessed_inputs, true_image_shapes = detection_model.preprocess(
-            inputs)
-        output_tensors = detection_model.predict(
-            preprocessed_inputs, true_image_shapes)
-        postprocessed_tensors = detection_model.postprocess(
-            output_tensors, true_image_shapes)
-        return postprocessed_tensors
+    # # Creates inference function, encapsulating object detection requirements
+    # def object_detection_inference(input_tensors):
+    #     inputs = tf.to_float(input_tensors)
+    #     preprocessed_inputs, true_image_shapes = detection_model.preprocess(
+    #         inputs)
+    #     output_tensors = detection_model.predict(
+    #         preprocessed_inputs, true_image_shapes)
+    #     postprocessed_tensors = detection_model.postprocess(
+    #         output_tensors, true_image_shapes)
+    #     return postprocessed_tensors
 
-    # Builds the server
-    server_builder.build_server_from_tf(
-        inference_function=object_detection_inference,
-        preprocess_function=layer_injector.bitstring_to_uint8_tensor,
-        postprocess_function=layer_injector.object_detection_dict_to_tensor_dict,  # nopep8
-        model_name=FLAGS.model_name,
-        model_version=FLAGS.model_version,
-        checkpoint_dir=FLAGS.checkpoint_dir,
-        serve_dir=FLAGS.serve_dir,
-        channels=FLAGS.channels)
+    # # Builds the server
+    # server_builder.build_server_from_tf(
+    #     inference_function=object_detection_inference,
+    #     preprocess_function=layer_injector.bitstring_to_uint8_tensor,
+    #     postprocess_function=layer_injector.object_detection_dict_to_tensor_dict,  # nopep8
+    #     model_name=FLAGS.model_name,
+    #     model_version=FLAGS.model_version,
+    #     checkpoint_dir=FLAGS.checkpoint_dir,
+    #     serve_dir=FLAGS.serve_dir,
+    #     channels=FLAGS.channels)
 
     ###################################################################
     # Arbitrary Keras Model (Image-to-Image Segmentation in Keras)
